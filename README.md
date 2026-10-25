@@ -60,7 +60,7 @@ void main() async {
    );
    ```
 
-2. Register the service in `lib/services/storage_service.dart`.
+2. Register the provider in `lib/providers/storage_provider.dart`.
    The generated container finds it.
 
    ```dart
@@ -68,8 +68,8 @@ void main() async {
 
    import '../config/storage.dart';
 
-   class AppStorageService extends StorageService {
-     AppStorageService() : super(storageConfig);
+   class AppStorageProvider extends StorageProvider {
+     AppStorageProvider() : super(storageConfig);
    }
    ```
 
@@ -83,7 +83,7 @@ void main() async {
 
    Serve files with `Storage.route('files')` in a router.
 
-Without the service, `Storage()` has one `local` disk in the `storage` folder.
+Without the provider, `Storage()` has one `local` disk in the `storage` folder.
 
 ## Features
 

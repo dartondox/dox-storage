@@ -1,3 +1,7 @@
+## 3.0.0-alpha.13
+
+- `StorageProvider` (was a DoxService): extend it in your app, `shutdown()` is optional.
+
 ## 3.0.0-alpha.12
 
 - The package now lives in its own repo: [dartondox/dox-storage](https://github.com/dartondox/dox-storage).

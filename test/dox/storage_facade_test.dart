@@ -34,8 +34,8 @@ AppConfig config = AppConfig(
   serverPort: port,
   totalIsolate: 1,
   routers: <Router>[FileRouter()],
-  services: <DoxService>[
-    StorageService(
+  providers: <DoxProvider>[
+    StorageProvider(
       StorageConfig(
         disks: <String, Map<String, dynamic>>{
           'local': <String, dynamic>{

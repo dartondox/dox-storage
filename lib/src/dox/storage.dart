@@ -15,7 +15,7 @@ import 'storage_file_controller.dart';
 
 /// Storage facade for Dox apps.
 ///
-/// Disks come from `StorageService`. Without it, `Storage()` has one
+/// Disks come from `StorageProvider`. Without it, `Storage()` has one
 /// `local` disk in the `storage` folder. Files are read as streams, so a
 /// big file is never loaded into memory to send it.
 /// ```
@@ -30,7 +30,7 @@ class Storage {
 
   static DriveManager? _shared;
 
-  /// The disks of this isolate. `StorageService` sets them at start.
+  /// The disks of this isolate. `StorageProvider` sets them at start.
   /// Replace one disk in tests with `Storage.manager.fake('s3')`.
   static DriveManager get manager {
     return _shared ??= StorageDiskFactory(appKey: Dox().config.appKey)
