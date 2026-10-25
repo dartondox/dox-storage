@@ -1,0 +1,6 @@
+.dart_tool/
+.DS_Store
+pubspec.lock
+pubspec_overrides.yaml
+build/
+/storage

@@ -1,4 +1,4 @@
-/// File storage for dox: local disk, S3 and S3-compatible services.
+/// File storage for Dox: local disk, S3 and S3-compatible services.
 library;
 
 export 'src/clock.dart';
@@ -16,3 +16,8 @@ export 'src/types.dart';
 export 'src/drivers/s3/s3_driver.dart';
 export 'src/drivers/s3/s3_driver_config.dart';
 export 'src/drivers/s3/s3_client.dart';
+
+/// Dox app glue: Storage(), StorageService, Storage.route()
+export 'src/dox/storage.dart';
+export 'src/dox/storage_config.dart';
+export 'src/dox/storage_service.dart';

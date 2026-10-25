@@ -3,10 +3,10 @@
 File storage for Dart. One API for local disk, AWS S3 and S3-compatible services.
 
 [![pub package](https://img.shields.io/pub/v/dox_storage.svg)](https://pub.dev/packages/dox_storage)
-[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/dartondox/dox/blob/main/LICENSE)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/dartondox/dox-storage/blob/main/LICENSE)
 
-Part of [Dox](https://dartondox.dev), a web backend framework for Dart, like Laravel.
-Source code: [github.com/dartondox/dox](https://github.com/dartondox/dox).
+Part of [Dox](https://dartondox.dev), a web backend framework for Dart.
+Source code: [github.com/dartondox/dox-storage](https://github.com/dartondox/dox-storage).
 
 ## Install
 
@@ -45,7 +45,45 @@ void main() async {
 }
 ```
 
-In a Dox app, set the disks in `config/storage.dart` and use `Storage()`.
+## Use it in a Dox app
+
+1. Set the disks in `lib/config/storage.dart`:
+
+   ```dart
+   import 'package:dox_storage/dox_storage.dart';
+
+   StorageConfig storageConfig = StorageConfig(
+     defaultDisk: 'local',
+     disks: <String, Map<String, dynamic>>{
+       'local': <String, dynamic>{'driver': 'local', 'root': 'storage'},
+     },
+   );
+   ```
+
+2. Register the service in `lib/services/storage_service.dart`.
+   The generated container finds it.
+
+   ```dart
+   import 'package:dox_storage/dox_storage.dart';
+
+   import '../config/storage.dart';
+
+   class AppStorageService extends StorageService {
+     AppStorageService() : super(storageConfig);
+   }
+   ```
+
+3. Use `Storage()`:
+
+   ```dart
+   RequestFile file = req.input('avatar');
+   String path = await file.store('avatars');
+   return Storage().download(path);
+   ```
+
+   Serve files with `Storage.route('files')` in a router.
+
+Without the service, `Storage()` has one `local` disk in the `storage` folder.
 
 ## Features
 
@@ -65,4 +103,4 @@ In a Dox app, set the disks in `config/storage.dart` and use `Storage()`.
 
 ## License
 
-MIT. See [LICENSE](https://github.com/dartondox/dox/blob/main/LICENSE).
+MIT. See [LICENSE](https://github.com/dartondox/dox-storage/blob/main/LICENSE).

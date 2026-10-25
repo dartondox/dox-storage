@@ -1,3 +1,13 @@
+## 3.0.0-alpha.12
+
+- The package now lives in its own repo: [dartondox/dox-storage](https://github.com/dartondox/dox-storage).
+- Breaking: the Dox glue moved here from `dox_core`. Add `dox_storage` to your app and import `package:dox_storage/dox_storage.dart`.
+  - `Storage()`, `StorageConfig` and `StorageDiskFactory` are now in this package.
+  - New `StorageService`. Extend it to set the disks: `class AppStorageService extends StorageService { AppStorageService() : super(storageConfig); }`. It replaces `AppConfig.storage`.
+  - `Route.files('files')` is now `Storage.route('files')`.
+  - `Dox().storage` is now `Storage.manager`.
+  - `file.store(folder)` on a `RequestFile` still works. It needs this import.
+
 ## 3.0.0-alpha.11
 
 - Version bump only, to match the other packages.

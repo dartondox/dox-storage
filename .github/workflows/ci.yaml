@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # The S3 tests use MinIO on port 9100. A GitHub service can not pass
+      # the `server` command to the image, so it starts with docker run.
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9100:9000 \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            cgr.dev/chainguard/minio:latest server /tmp/data
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - run: dart pub get
+      - run: dart format --output=none --set-exit-if-changed .
+      - run: dart analyze --fatal-infos
+      - name: Wait for MinIO
+        run: timeout 90 sh -c 'until curl -sf http://localhost:9100/minio/health/live; do sleep 1; done'
+      - run: dart test
+      - run: dart pub publish --dry-run
