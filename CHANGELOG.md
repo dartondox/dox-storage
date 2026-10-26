@@ -1,3 +1,7 @@
+## 3.0.0
+
+- The first stable release.
+
 ## 3.0.0-rc.1
 
 - Breaking: in a Dox app, local signed URLs are signed with a key made from `APP_KEY` for signed URLs only, not with `APP_KEY` itself. Signed URLs made before this version stop working. A disk with its own `app_key` option still uses it as it is.
