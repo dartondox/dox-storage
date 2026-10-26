@@ -104,6 +104,18 @@ void main() {
       expect(res.statusCode, 404);
     });
 
+    test('a key outside the disk is 404, not 500', () async {
+      List<String> urls = <String>[
+        '$baseUrl/public-files/..%2Fpubspec.yaml',
+        '$baseUrl/download?key=..%2Fpubspec.yaml',
+      ];
+      for (String url in urls) {
+        http.Response res = await http.get(Uri.parse(url));
+        expect(res.statusCode, 404, reason: url);
+        expect(res.body, isNot(contains('dox_storage')), reason: url);
+      }
+    });
+
     test('memory disk works through the same facade', () async {
       String path = await Storage()
           .disk('memory')
