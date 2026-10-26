@@ -18,8 +18,7 @@ class StorageProvider extends DoxProvider {
 
   @override
   void setup() {
-    Storage.manager = StorageDiskFactory(appKey: Dox().config.appKey)
-        .create(config);
+    Storage.manager = StorageDiskFactory.fromApp().create(config);
   }
 }
 

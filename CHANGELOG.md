@@ -1,5 +1,6 @@
-## Unreleased
+## 3.0.0-rc.1
 
+- Breaking: in a Dox app, local signed URLs are signed with a key made from `APP_KEY` for signed URLs only, not with `APP_KEY` itself. Signed URLs made before this version stop working. A disk with its own `app_key` option still uses it as it is.
 - Fix: `Storage().stream()`, `download()` and `Storage.route()` answered 500 for a key outside the disk, like `../pubspec.yaml`. They now answer 404. No file was leaked before.
 - Tests: the permission test is skipped when the user can read a locked file, like root. The free port helper falls back to IPv4 on hosts with no IPv6.
 
