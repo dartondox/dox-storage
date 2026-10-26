@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:dox_core/dox_core.dart';
+
 import '../drive_manager.dart';
 import '../driver_contract.dart';
 import '../drivers/local_driver.dart';
@@ -40,6 +44,15 @@ class StorageConfig {
 class StorageDiskFactory {
   /// [appKey] signs local URLs when a disk has no `app_key` option.
   const StorageDiskFactory({this.appKey});
+
+  /// A factory for the Dox app. Local URLs are signed with a key made
+  /// from `APP_KEY` for signed URLs only (see [KeyDerivation]), not with
+  /// `APP_KEY` itself.
+  factory StorageDiskFactory.fromApp() {
+    return StorageDiskFactory(
+      appKey: base64.encode(KeyDerivation.forAppKey(KeyDerivation.signedUrl)),
+    );
+  }
 
   final String? appKey;
 

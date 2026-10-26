@@ -33,8 +33,9 @@ class Storage {
   /// The disks of this isolate. `StorageProvider` sets them at start.
   /// Replace one disk in tests with `Storage.manager.fake('s3')`.
   static DriveManager get manager {
-    return _shared ??= StorageDiskFactory(appKey: Dox().config.appKey)
-        .create(const StorageConfig());
+    return _shared ??= StorageDiskFactory.fromApp().create(
+      const StorageConfig(),
+    );
   }
 
   static set manager(DriveManager value) => _shared = value;
