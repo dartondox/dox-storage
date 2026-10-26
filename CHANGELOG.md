@@ -1,3 +1,7 @@
+## Unreleased
+
+- Fix: `Storage().stream()`, `download()` and `Storage.route()` answered 500 for a key outside the disk, like `../pubspec.yaml`. They now answer 404. No file was leaked before.
+
 ## 3.0.0-alpha.13
 
 - `StorageProvider` (was a DoxService): extend it in your app, `shutdown()` is optional.

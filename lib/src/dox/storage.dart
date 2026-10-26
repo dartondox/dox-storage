@@ -175,6 +175,11 @@ class Storage {
       // the Dox error handler turns it into a 404 response
       // ignore: only_throw_errors
       throw NotFoundHttpException(message: 'file not found');
+    } on InvalidKeyException {
+      // a key like `../pubspec.yaml` points outside the disk.
+      // answer 404, the same as a missing file.
+      // ignore: only_throw_errors
+      throw NotFoundHttpException(message: 'file not found');
     }
   }
 
