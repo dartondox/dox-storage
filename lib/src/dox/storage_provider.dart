@@ -6,13 +6,13 @@ import 'storage_config.dart';
 /// Sets up the disks of `Storage()` in every isolate. Extend it in `lib/`
 /// so the generated container finds it:
 /// ```
-/// class AppStorageService extends StorageService {
-///   AppStorageService() : super(storageConfig);
+/// class AppStorageProvider extends StorageProvider {
+///   AppStorageProvider() : super(storageConfig);
 /// }
 /// ```
 /// Without it, `Storage()` has one `local` disk in the `storage` folder.
-class StorageService implements DoxService {
-  StorageService(this.config);
+class StorageProvider extends DoxProvider {
+  StorageProvider(this.config);
 
   final StorageConfig config;
 

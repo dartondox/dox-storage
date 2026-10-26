@@ -3,7 +3,7 @@ import '../../types.dart';
 
 /// Settings for [S3Driver].
 ///
-/// Works with AWS S3 and S3-compatible services:
+/// Works with AWS S3 and S3-compatible services, for example:
 /// - Cloudflare R2: `endpoint: 'https://<account>.r2.cloudflarestorage.com'`,
 ///   `region: 'auto'`, `supportsAcl: false`.
 /// - MinIO: `endpoint: 'http://localhost:9000'`, `forcePathStyle: true`.
