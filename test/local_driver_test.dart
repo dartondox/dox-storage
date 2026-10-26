@@ -109,15 +109,20 @@ void main() {
     });
 
     test('permission errors map to PermissionDeniedException', () async {
-      if (Platform.isWindows) {
-        return;
-      }
       await disk.put('locked/a.txt', 'secret');
       File file = File(p.join(dir.path, 'locked', 'a.txt'));
       await Process.run('chmod', <String>['000', file.path]);
       addTearDown(() async {
         await Process.run('chmod', <String>['644', file.path]);
       });
+      // root can read a file with mode 000, so there is nothing to test.
+      try {
+        file.readAsBytesSync();
+        markTestSkipped('this user can read a mode 000 file (root?)');
+        return;
+      } on FileSystemException {
+        // the file is locked, as expected
+      }
       expect(
         disk.get('locked/a.txt'),
         throwsA(isA<PermissionDeniedException>()),
