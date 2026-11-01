@@ -36,5 +36,21 @@ void main() {
       Map<String, dynamic> options = <String, dynamic>{...s3, 'bucket': ''};
       expect(() => factory.driver('s3', options), throwsArgumentError);
     });
+
+    test('a signed URL of one local disk fails on another', () async {
+      StorageDiskFactory signing = const StorageDiskFactory(appKey: 'k');
+      Map<String, dynamic> local = <String, dynamic>{
+        'driver': 'local',
+        'root': 'storage',
+        'url': 'https://app.test/files',
+      };
+      LocalDriver a = signing.driver('a', local) as LocalDriver;
+      LocalDriver b = signing.driver('b', local) as LocalDriver;
+      Uri url = Uri.parse(
+        await a.getSignedUrl('x.txt', const SignedUrlOptions()),
+      );
+      expect(a.verifySignedUrl('x.txt', url.queryParameters), isTrue);
+      expect(b.verifySignedUrl('x.txt', url.queryParameters), isFalse);
+    });
   });
 }

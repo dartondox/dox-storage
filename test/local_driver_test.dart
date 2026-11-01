@@ -184,6 +184,18 @@ void main() {
         expect(other.verify('a.pdf', url.queryParameters), isFalse);
       });
 
+      test('a URL signed for one disk fails on another disk', () async {
+        Uri url = await signed('a.pdf');
+        LocalUrlSigner other = LocalUrlSigner(
+          'test-app-key',
+          disk: 'backups',
+          clock: clock,
+        );
+        expect(other.verify('a.pdf', url.queryParameters), isFalse);
+        LocalUrlSigner same = LocalUrlSigner('test-app-key', clock: clock);
+        expect(same.verify('a.pdf', url.queryParameters), isTrue);
+      });
+
       test('LocalUrlSigner needs an app key', () {
         expect(() => LocalUrlSigner(''), throwsArgumentError);
       });

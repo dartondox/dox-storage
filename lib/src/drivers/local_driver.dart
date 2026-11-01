@@ -29,8 +29,13 @@ class LocalDriverConfig {
   /// `getVisibility` returns for every file.
   final Visibility visibility;
 
+  /// Name of the disk. Signed URLs include it, so a URL signed for one
+  /// local disk does not work on another. `StorageDiskFactory` sets it.
+  final String disk;
+
   const LocalDriverConfig({
     required this.root,
+    this.disk = '',
     this.urlBase,
     this.appKey,
     this.visibility = Visibility.public,
@@ -56,7 +61,7 @@ class LocalDriver implements DriverContract {
   }) : root = p.normalize(p.absolute(config.root)),
        signer = config.appKey == null
            ? null
-           : LocalUrlSigner(config.appKey!, clock: clock);
+           : LocalUrlSigner(config.appKey!, disk: config.disk, clock: clock);
 
   /// Check a signed URL in the route that serves files.
   /// [key] is the decoded file key from the path.

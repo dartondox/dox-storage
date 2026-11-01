@@ -1,3 +1,7 @@
+## Unreleased
+
+- Breaking: a local signed URL now includes the disk name in its signature. Before, a URL signed for one local disk also worked on the route of another local disk with the same file key. Signed URLs made before this version stop working. `LocalDriverConfig` has a new `disk` option; `StorageDiskFactory` sets it to the disk name.
+
 ## 3.0.1
 
 - Fix: `Storage.route()` decoded the file key a second time. A key with a real `%`, like `100%.txt`, gave the wrong file or a 500. Dox core 3.0.1 already decodes the path, so the route now uses the key as it is.
