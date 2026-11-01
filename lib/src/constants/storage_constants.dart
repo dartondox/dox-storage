@@ -42,6 +42,10 @@ class StorageConstants {
   static const String localExpiresParam = 'expires';
   static const String localSignatureParam = 'signature';
 
+  /// End of the name of a temp file that `LocalDriver` writes before it
+  /// renames it. Listings hide files with this ending.
+  static const String localTempSuffix = '.dox-upload.tmp';
+
   /// Content type used when nothing better is known.
   static const String defaultContentType = 'application/octet-stream';
 }

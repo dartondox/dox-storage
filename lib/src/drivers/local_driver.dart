@@ -221,7 +221,7 @@ class LocalDriver implements DriverContract {
     String name =
         '.${p.basename(file.path)}.'
         '${DateTime.now().microsecondsSinceEpoch}-'
-        '${_random.nextInt(1 << 32)}.tmp';
+        '${_random.nextInt(1 << 32)}${StorageConstants.localTempSuffix}';
     return File(p.join(file.parent.path, name));
   }
 
@@ -233,11 +233,18 @@ class LocalDriver implements DriverContract {
       await _io(key, write);
       await _io(key, temp.rename(pathFor(key)));
     } catch (_) {
-      if (await temp.exists()) {
+      try {
         await temp.delete();
+      } on FileSystemException {
+        // already gone or locked: keep the first error
       }
       rethrow;
     }
+  }
+
+  /// True for a temp file of [_tempFile]. A crash can leave one behind.
+  bool _isTempFile(String path) {
+    return p.basename(path).endsWith(StorageConstants.localTempSuffix);
   }
 
   @override
@@ -300,6 +307,7 @@ class LocalDriver implements DriverContract {
     await for (FileSystemEntity entity in items) {
       String key = p.split(p.relative(entity.path, from: root)).join('/');
       if (entity is File) {
+        if (_isTempFile(entity.path)) continue;
         entries.add(DriveFile(key));
       } else if (entity is Directory && !options.recursive) {
         entries.add(DriveDirectory(key));

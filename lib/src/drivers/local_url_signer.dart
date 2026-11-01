@@ -72,7 +72,11 @@ class LocalUrlSigner {
 
   String _signature(String key, int expires) {
     Hmac hmac = Hmac(sha256, _secret);
-    return hmac.convert(utf8.encode('$disk\n$key\n$expires')).toString();
+    // the length prefix keeps disk `a` + key `b\nc` apart from
+    // disk `a\nb` + key `c`.
+    return hmac
+        .convert(utf8.encode('${disk.length}:$disk\n$key\n$expires'))
+        .toString();
   }
 
   bool _constantTimeEquals(String a, String b) {

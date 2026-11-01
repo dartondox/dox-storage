@@ -154,6 +154,29 @@ void main() {
       ]);
     });
 
+    test('listAll hides temp files of running uploads', () async {
+      await disk.put('up/a.txt', 'a');
+      StreamController<List<int>> upload = StreamController<List<int>>();
+      Future<void> write = disk.putStream('up/b.txt', upload.stream);
+      upload.add(<int>[1]);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(
+        Directory(p.join(dir.path, 'up')).listSync().length,
+        2,
+        reason: 'the temp file is on disk while the upload runs',
+      );
+      ListResult flat = await disk.listAll('up');
+      expect(flat.objects.map(_key), <String>['up/a.txt']);
+      ListResult deep = await disk.listAll(
+        '',
+        const ListOptions(recursive: true),
+      );
+      expect(deep.objects.map(_key), <String>['up/a.txt']);
+      await upload.close();
+      await write;
+      expect(await disk.getString('up/b.txt'), '\x01');
+    });
+
     group('signed URLs', () {
       Future<Uri> signed(String key) async {
         String url = await disk.getSignedUrl(
@@ -229,3 +252,5 @@ void main() {
 }
 
 String _name(FileSystemEntity entity) => p.basename(entity.path);
+
+String _key(DriveEntry entry) => entry.key;
