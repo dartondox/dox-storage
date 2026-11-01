@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dox_storage/dox_storage.dart';
@@ -129,6 +130,53 @@ void main() {
       );
     }, testOn: '!windows');
 
+    test('a failed stream upload leaves no partial file', () async {
+      await disk.put('up/a.txt', 'old');
+      StreamController<List<int>> upload = StreamController<List<int>>();
+      Future<void> write = disk.putStream('up/a.txt', upload.stream);
+      upload.add(<int>[1, 2, 3]);
+      upload.addError(StateError('client went away'));
+      await upload.close();
+      await expectLater(write, throwsA(anything));
+      expect(await disk.getString('up/a.txt'), 'old');
+      expect(Directory(p.join(dir.path, 'up')).listSync().map(_name), <String>[
+        'a.txt',
+      ]);
+
+      StreamController<List<int>> fresh = StreamController<List<int>>();
+      Future<void> other = disk.putStream('up/new.txt', fresh.stream);
+      fresh.addError(StateError('client went away'));
+      await fresh.close();
+      await expectLater(other, throwsA(anything));
+      expect(await disk.exists('up/new.txt'), isFalse);
+      expect(Directory(p.join(dir.path, 'up')).listSync().map(_name), <String>[
+        'a.txt',
+      ]);
+    });
+
+    test('listAll hides temp files of running uploads', () async {
+      await disk.put('up/a.txt', 'a');
+      StreamController<List<int>> upload = StreamController<List<int>>();
+      Future<void> write = disk.putStream('up/b.txt', upload.stream);
+      upload.add(<int>[1]);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(
+        Directory(p.join(dir.path, 'up')).listSync().length,
+        2,
+        reason: 'the temp file is on disk while the upload runs',
+      );
+      ListResult flat = await disk.listAll('up');
+      expect(flat.objects.map(_key), <String>['up/a.txt']);
+      ListResult deep = await disk.listAll(
+        '',
+        const ListOptions(recursive: true),
+      );
+      expect(deep.objects.map(_key), <String>['up/a.txt']);
+      await upload.close();
+      await write;
+      expect(await disk.getString('up/b.txt'), '\x01');
+    });
+
     group('signed URLs', () {
       Future<Uri> signed(String key) async {
         String url = await disk.getSignedUrl(
@@ -184,9 +232,25 @@ void main() {
         expect(other.verify('a.pdf', url.queryParameters), isFalse);
       });
 
+      test('a URL signed for one disk fails on another disk', () async {
+        Uri url = await signed('a.pdf');
+        LocalUrlSigner other = LocalUrlSigner(
+          'test-app-key',
+          disk: 'backups',
+          clock: clock,
+        );
+        expect(other.verify('a.pdf', url.queryParameters), isFalse);
+        LocalUrlSigner same = LocalUrlSigner('test-app-key', clock: clock);
+        expect(same.verify('a.pdf', url.queryParameters), isTrue);
+      });
+
       test('LocalUrlSigner needs an app key', () {
         expect(() => LocalUrlSigner(''), throwsArgumentError);
       });
     });
   });
 }
+
+String _name(FileSystemEntity entity) => p.basename(entity.path);
+
+String _key(DriveEntry entry) => entry.key;

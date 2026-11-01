@@ -19,6 +19,7 @@ class FileRouter extends Router {
   void register() {
     Storage.route('files');
     Storage.route('public-files', signed: false);
+    Storage.route('memory-files', disk: 'memory');
     Route.get('/download', (DoxRequest req) {
       return Storage().download(req.input('key') as String);
     });
@@ -148,6 +149,23 @@ void main() {
       },
     );
 
+    test('a signed route on a non-local disk says why it fails', () async {
+      _QuietExceptionHandler.lastError = null;
+      http.Response res = await http.get(
+        Uri.parse('$baseUrl/memory-files/a.txt?signature=x&expires=1'),
+      );
+      expect(res.statusCode, isNot(200));
+      expect(res.statusCode, isNot(403));
+      expect(
+        _QuietExceptionHandler.lastError,
+        isA<UnsupportedOperationException>().having(
+          (UnsupportedOperationException e) => e.message,
+          'message',
+          contains('Disk "memory" uses MemoryDriver'),
+        ),
+      );
+    });
+
     test('memory disk works through the same facade', () async {
       String path = await Storage()
           .disk('memory')
@@ -192,6 +210,11 @@ void main() {
 class _QuietExceptionHandler extends ExceptionHandler {
   const _QuietExceptionHandler();
 
+  /// the last error, so a test can check it
+  static Object? lastError;
+
   @override
-  void report(Object error, StackTrace stackTrace) {}
+  void report(Object error, StackTrace stackTrace) {
+    lastError = error;
+  }
 }

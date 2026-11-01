@@ -73,6 +73,7 @@ class StorageDiskFactory {
         return LocalDriver(
           LocalDriverConfig(
             root: options['root'] as String? ?? 'storage',
+            disk: name,
             urlBase: _text(options['url']),
             appKey: _text(options['app_key']) ?? _text(appKey),
             visibility: _visibility(options['visibility'], Visibility.public),

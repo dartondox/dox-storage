@@ -11,14 +11,21 @@ import '../key_normalizer.dart';
 ///
 /// A signed URL looks like `<base>/<key>?expires=<ms>&signature=<hex>`.
 /// Your route checks it with [verify] before it serves the file.
+///
+/// The signature covers [disk], so a URL signed for one disk does not
+/// work on the route of another disk.
 class LocalUrlSigner {
   final List<int> _secret;
+
+  /// Name of the disk this signer is for.
+  final String disk;
   final Clock clock;
   final KeyNormalizer normalizer;
   final KeyEncoder encoder;
 
   LocalUrlSigner(
     String appKey, {
+    this.disk = '',
     this.clock = const Clock(),
     this.normalizer = const KeyNormalizer(),
     this.encoder = const KeyEncoder(),
@@ -65,7 +72,11 @@ class LocalUrlSigner {
 
   String _signature(String key, int expires) {
     Hmac hmac = Hmac(sha256, _secret);
-    return hmac.convert(utf8.encode('$key\n$expires')).toString();
+    // the length prefix keeps disk `a` + key `b\nc` apart from
+    // disk `a\nb` + key `c`.
+    return hmac
+        .convert(utf8.encode('${disk.length}:$disk\n$key\n$expires'))
+        .toString();
   }
 
   bool _constantTimeEquals(String a, String b) {

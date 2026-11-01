@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:mime/mime.dart';
@@ -29,8 +30,13 @@ class LocalDriverConfig {
   /// `getVisibility` returns for every file.
   final Visibility visibility;
 
+  /// Name of the disk. Signed URLs include it, so a URL signed for one
+  /// local disk does not work on another. `StorageDiskFactory` sets it.
+  final String disk;
+
   const LocalDriverConfig({
     required this.root,
+    this.disk = '',
     this.urlBase,
     this.appKey,
     this.visibility = Visibility.public,
@@ -48,6 +54,7 @@ class LocalDriver implements DriverContract {
 
   final LocalUrlSigner? signer;
   final Listing _listing = const Listing();
+  final Random _random = Random();
 
   LocalDriver(
     this.config, {
@@ -56,7 +63,7 @@ class LocalDriver implements DriverContract {
   }) : root = p.normalize(p.absolute(config.root)),
        signer = config.appKey == null
            ? null
-           : LocalUrlSigner(config.appKey!, clock: clock);
+           : LocalUrlSigner(config.appKey!, disk: config.disk, clock: clock);
 
   /// Check a signed URL in the route that serves files.
   /// [key] is the decoded file key from the path.
@@ -184,8 +191,8 @@ class LocalDriver implements DriverContract {
 
   @override
   Future<void> put(String key, Uint8List contents, WriteOptions options) async {
-    File file = await _writableFile(key);
-    await _io(key, file.writeAsBytes(contents, flush: true));
+    File temp = await _tempFile(key);
+    await _replace(key, temp, temp.writeAsBytes(contents, flush: true));
   }
 
   @override
@@ -194,13 +201,50 @@ class LocalDriver implements DriverContract {
     Stream<List<int>> contents,
     WriteOptions options,
   ) async {
-    File file = await _writableFile(key);
+    File temp = await _tempFile(key);
+    await _replace(key, temp, _writeStream(temp, contents));
+  }
+
+  Future<void> _writeStream(File file, Stream<List<int>> contents) async {
     IOSink sink = file.openWrite();
     try {
       await sink.addStream(contents);
     } finally {
       await sink.close();
     }
+  }
+
+  /// A new temp file next to the file of [key]. Same folder, so the
+  /// rename in [_replace] does not cross file systems.
+  Future<File> _tempFile(String key) async {
+    File file = await _writableFile(key);
+    String name =
+        '.${p.basename(file.path)}.'
+        '${DateTime.now().microsecondsSinceEpoch}-'
+        '${_random.nextInt(1 << 32)}${StorageConstants.localTempSuffix}';
+    return File(p.join(file.parent.path, name));
+  }
+
+  /// Wait for [write] into [temp], then rename [temp] to the file of [key].
+  /// Readers see the old file or the full new file, never a partial one.
+  /// On error the temp file is deleted.
+  Future<void> _replace(String key, File temp, Future<void> write) async {
+    try {
+      await _io(key, write);
+      await _io(key, temp.rename(pathFor(key)));
+    } catch (_) {
+      try {
+        await temp.delete();
+      } on FileSystemException {
+        // already gone or locked: keep the first error
+      }
+      rethrow;
+    }
+  }
+
+  /// True for a temp file of [_tempFile]. A crash can leave one behind.
+  bool _isTempFile(String path) {
+    return p.basename(path).endsWith(StorageConstants.localTempSuffix);
   }
 
   @override
@@ -263,6 +307,7 @@ class LocalDriver implements DriverContract {
     await for (FileSystemEntity entity in items) {
       String key = p.split(p.relative(entity.path, from: root)).join('/');
       if (entity is File) {
+        if (_isTempFile(entity.path)) continue;
         entries.add(DriveFile(key));
       } else if (entity is Directory && !options.recursive) {
         entries.add(DriveDirectory(key));
