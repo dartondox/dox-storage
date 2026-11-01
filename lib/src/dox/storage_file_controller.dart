@@ -4,6 +4,7 @@ import 'package:dox_core/dox_core.dart';
 
 import '../driver_contract.dart';
 import '../drivers/local_driver.dart';
+import '../exceptions.dart';
 import 'storage.dart';
 
 /// Serves files of a disk for `Storage.route()`.
@@ -37,14 +38,18 @@ class StorageFileController {
   bool _verify(String key, Map<String, String> query) {
     DriverContract driver = Storage().use(disk).driver;
     if (driver is! LocalDriver) {
-      // a setup error, not a bad URL. Keep the 403 of 3.0.1, but say why
-      // in the log.
+      // a setup error, not a bad URL. Keep the 403 of 3.0.1, but report
+      // why to the app's exception handler, so it shows in the log.
       String name = disk ?? Storage.manager.defaultDisk;
-      Logger.danger(
-        'Storage.route() with signed: true only works with a local disk. '
-        'Disk "$name" uses ${driver.runtimeType}, so every request gets 403. '
-        'Use signed: false, or send users to the URL from signedUrl() on '
-        'that disk.',
+      Dox().config.exceptionHandler.report(
+        UnsupportedOperationException(
+          key,
+          'Storage.route() with signed: true only works with a local disk. '
+          'Disk "$name" uses ${driver.runtimeType}, so every request gets '
+          '403. Use signed: false, or send users to the URL from '
+          'signedUrl() on that disk.',
+        ),
+        StackTrace.current,
       );
       return false;
     }

@@ -43,7 +43,7 @@ class StorageConstants {
   static const String localSignatureParam = 'signature';
 
   /// End of the name of a temp file that `LocalDriver` writes before it
-  /// renames it. Listings hide files with this ending.
+  /// renames it, with `atomicWrites` on. Its listings hide these files.
   static const String localTempSuffix = '.dox-upload.tmp';
 
   /// Content type used when nothing better is known.

@@ -34,9 +34,24 @@ class LocalDriverConfig {
   /// local disk does not work on another. `StorageDiskFactory` sets it.
   final String disk;
 
+  /// Off by default: `put` and `putStream` write straight into the file,
+  /// like 3.0.1.
+  ///
+  /// When on, they write to a temp file in the same folder, then rename
+  /// it to the file. A failed or stopped upload never leaves a partial
+  /// file, and the old file stays. Temp file names end with
+  /// `.dox-upload.tmp`, and `listAll` hides them.
+  ///
+  /// The rename makes a new file. So the folder must be writable, the
+  /// file gets the default mode and the owner of the app, a hard link to
+  /// the old file keeps the old content, and a symlink is replaced by a
+  /// normal file.
+  final bool atomicWrites;
+
   const LocalDriverConfig({
     required this.root,
     this.disk = '',
+    this.atomicWrites = false,
     this.urlBase,
     this.appKey,
     this.visibility = Visibility.public,
@@ -191,9 +206,13 @@ class LocalDriver implements DriverContract {
 
   @override
   Future<void> put(String key, Uint8List contents, WriteOptions options) async {
-    String target = await _target(key);
-    File temp = _tempFile(target);
-    await _replace(key, target, temp, temp.writeAsBytes(contents, flush: true));
+    File file = await _writableFile(key);
+    if (!config.atomicWrites) {
+      await _io(key, file.writeAsBytes(contents, flush: true));
+      return;
+    }
+    File temp = _tempFile(file);
+    await _replace(key, file, temp, temp.writeAsBytes(contents, flush: true));
   }
 
   @override
@@ -202,9 +221,13 @@ class LocalDriver implements DriverContract {
     Stream<List<int>> contents,
     WriteOptions options,
   ) async {
-    String target = await _target(key);
-    File temp = _tempFile(target);
-    await _replace(key, target, temp, _writeStream(temp, contents));
+    File file = await _writableFile(key);
+    if (!config.atomicWrites) {
+      await _writeStream(file, contents);
+      return;
+    }
+    File temp = _tempFile(file);
+    await _replace(key, file, temp, _writeStream(temp, contents));
   }
 
   Future<void> _writeStream(File file, Stream<List<int>> contents) async {
@@ -216,39 +239,28 @@ class LocalDriver implements DriverContract {
     }
   }
 
-  /// The path to write for [key]. Like 3.0.1, a write to a symlink goes
-  /// to the file it points to, and the link stays.
-  Future<String> _target(String key) async {
-    File file = await _writableFile(key);
-    if (await FileSystemEntity.isLink(file.path) && await file.exists()) {
-      return file.resolveSymbolicLinks();
-    }
-    return file.path;
-  }
-
-  /// A new temp file next to [target]. Same folder, so the rename in
-  /// [_replace] does not cross file systems.
-  File _tempFile(String target) {
+  /// A new temp file next to [file], for [LocalDriverConfig.atomicWrites].
+  /// Same folder, so the rename in [_replace] does not cross file systems.
+  File _tempFile(File file) {
     String name =
-        '.${p.basename(target)}.'
+        '.${p.basename(file.path)}.'
         '${DateTime.now().microsecondsSinceEpoch}-'
         '${_random.nextInt(1 << 32)}${StorageConstants.localTempSuffix}';
-    return File(p.join(p.dirname(target), name));
+    return File(p.join(file.parent.path, name));
   }
 
-  /// Wait for [write] into [temp], then rename [temp] to [target].
+  /// Wait for [write] into [temp], then rename [temp] to [file].
   /// Readers see the old file or the full new file, never a partial one.
   /// On error the temp file is deleted.
   Future<void> _replace(
     String key,
-    String target,
+    File file,
     File temp,
     Future<void> write,
   ) async {
     try {
       await _io(key, write);
-      await _keepMode(target, temp);
-      await _io(key, temp.rename(target));
+      await _io(key, temp.rename(file.path));
     } catch (_) {
       try {
         await temp.delete();
@@ -259,28 +271,12 @@ class LocalDriver implements DriverContract {
     }
   }
 
-  /// 3.0.1 wrote into the old file, so an overwrite kept the old file mode.
-  /// The temp file gets the default mode (0666 minus the umask), the same
-  /// as a new file in 3.0.1. On an overwrite, copy the old mode when it
-  /// differs, so the file mode stays the same as in 3.0.1.
-  Future<void> _keepMode(String target, File temp) async {
-    if (Platform.isWindows) return;
-    FileStat old = await FileStat.stat(target);
-    if (old.type != FileSystemEntityType.file) return;
-    int mode = old.mode & 511; // 0777
-    if (mode == (await temp.stat()).mode & 511) return;
-    // ponytail: dart:io has no chmod, so run the chmod tool. This only
-    // runs when someone set a mode by hand. Use FFI if that gets common.
-    try {
-      await Process.run('chmod', <String>[mode.toRadixString(8), temp.path]);
-    } on ProcessException {
-      // no chmod tool: the file gets the default mode
-    }
-  }
-
   /// True for a temp file of [_tempFile]. A crash can leave one behind.
+  /// Only checked with [LocalDriverConfig.atomicWrites], so other disks
+  /// list every file like 3.0.1.
   bool _isTempFile(String path) {
-    return p.basename(path).endsWith(StorageConstants.localTempSuffix);
+    return config.atomicWrites &&
+        p.basename(path).endsWith(StorageConstants.localTempSuffix);
   }
 
   @override

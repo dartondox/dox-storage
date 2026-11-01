@@ -149,13 +149,20 @@ void main() {
       },
     );
 
-    test('a signed route on a non-local disk answers 403', () async {
+    test('a signed route on a non-local disk is 403 and reports why', () async {
       _QuietExceptionHandler.lastError = null;
       http.Response res = await http.get(
         Uri.parse('$baseUrl/memory-files/a.txt?signature=x&expires=1'),
       );
       expect(res.statusCode, 403);
-      expect(_QuietExceptionHandler.lastError, isNull);
+      expect(
+        _QuietExceptionHandler.lastError,
+        isA<UnsupportedOperationException>().having(
+          (UnsupportedOperationException e) => e.message,
+          'message',
+          contains('Disk "memory" uses MemoryDriver'),
+        ),
+      );
     });
 
     test('memory disk works through the same facade', () async {

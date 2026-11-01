@@ -23,6 +23,22 @@ void main() {
     },
   );
 
+  Directory? atomicDir;
+  runDiskContract(
+    'LocalDriver with atomicWrites',
+    () async {
+      atomicDir = await Directory.systemTemp.createTemp('dox_storage_');
+      return Disk(
+        LocalDriver(
+          LocalDriverConfig(root: atomicDir!.path, atomicWrites: true),
+        ),
+      );
+    },
+    cleanUp: () async {
+      await atomicDir?.delete(recursive: true);
+    },
+  );
+
   group('LocalDriver', () {
     late Directory dir;
     late FixedClock clock;
@@ -132,31 +148,38 @@ void main() {
       );
     }, testOn: '!windows');
 
-    test('a failed stream upload leaves no partial file', () async {
-      await disk.put('up/a.txt', 'old');
-      StreamController<List<int>> upload = StreamController<List<int>>();
-      Future<void> write = disk.putStream('up/a.txt', upload.stream);
-      upload.add(<int>[1, 2, 3]);
-      upload.addError(StateError('client went away'));
-      await upload.close();
-      await expectLater(write, throwsA(anything));
-      expect(await disk.getString('up/a.txt'), 'old');
-      expect(Directory(p.join(dir.path, 'up')).listSync().map(_name), <String>[
-        'a.txt',
-      ]);
+    test(
+      'atomicWrites: a failed stream upload leaves no partial file',
+      () async {
+        Disk disk = _atomic(dir);
+        await disk.put('up/a.txt', 'old');
+        StreamController<List<int>> upload = StreamController<List<int>>();
+        Future<void> write = disk.putStream('up/a.txt', upload.stream);
+        upload.add(<int>[1, 2, 3]);
+        upload.addError(StateError('client went away'));
+        await upload.close();
+        await expectLater(write, throwsA(anything));
+        expect(await disk.getString('up/a.txt'), 'old');
+        expect(
+          Directory(p.join(dir.path, 'up')).listSync().map(_name),
+          <String>['a.txt'],
+        );
 
-      StreamController<List<int>> fresh = StreamController<List<int>>();
-      Future<void> other = disk.putStream('up/new.txt', fresh.stream);
-      fresh.addError(StateError('client went away'));
-      await fresh.close();
-      await expectLater(other, throwsA(anything));
-      expect(await disk.exists('up/new.txt'), isFalse);
-      expect(Directory(p.join(dir.path, 'up')).listSync().map(_name), <String>[
-        'a.txt',
-      ]);
-    });
+        StreamController<List<int>> fresh = StreamController<List<int>>();
+        Future<void> other = disk.putStream('up/new.txt', fresh.stream);
+        fresh.addError(StateError('client went away'));
+        await fresh.close();
+        await expectLater(other, throwsA(anything));
+        expect(await disk.exists('up/new.txt'), isFalse);
+        expect(
+          Directory(p.join(dir.path, 'up')).listSync().map(_name),
+          <String>['a.txt'],
+        );
+      },
+    );
 
-    test('listAll hides temp files of running uploads', () async {
+    test('atomicWrites: listAll hides temp files of uploads', () async {
+      Disk disk = _atomic(dir);
       await disk.put('up/a.txt', 'a');
       StreamController<List<int>> upload = StreamController<List<int>>();
       Future<void> write = disk.putStream('up/b.txt', upload.stream);
@@ -179,30 +202,33 @@ void main() {
       expect(await disk.getString('up/b.txt'), '\x01');
     });
 
-    test('a new file gets the same mode as File.writeAsBytes', () async {
-      await disk.put('m/new.txt', 'x');
-      File plain = File(p.join(dir.path, 'm', 'plain.txt'));
-      await plain.writeAsBytes(<int>[1], flush: true);
-      expect(_mode(File(p.join(dir.path, 'm', 'new.txt'))), _mode(plain));
-    }, testOn: '!windows');
+    test('by default a write goes into the file, like 3.0.1', () async {
+      await disk.put('h/a.txt', 'old');
+      String path = p.join(dir.path, 'h', 'a.txt');
+      // hard link: both names see the new content
+      await Process.run('ln', <String>[path, p.join(dir.path, 'h', 'b.txt')]);
+      // mode set by hand stays
+      await Process.run('chmod', <String>['600', path]);
+      await disk.put('h/a.txt', 'new');
+      expect(await disk.getString('h/b.txt'), 'new');
+      expect(File(path).statSync().mode & 511, 384); // 0600
+      await disk.putStream('h/a.txt', Stream<List<int>>.value(<int>[65]));
+      expect(await disk.getString('h/b.txt'), 'A');
 
-    test('an overwrite keeps the mode of the old file', () async {
-      await disk.put('m/a.txt', 'old');
-      File file = File(p.join(dir.path, 'm', 'a.txt'));
-      await Process.run('chmod', <String>['600', file.path]);
-      await disk.put('m/a.txt', 'new');
-      expect(_mode(file), 384); // 0600
-      await disk.putStream('m/a.txt', Stream<List<int>>.value(<int>[1]));
-      expect(_mode(file), 384);
-    }, testOn: '!windows');
-
-    test('a write to a symlink goes to the file it points to', () async {
-      await disk.put('real.txt', 'old');
-      Link link = Link(p.join(dir.path, 'link.txt'));
-      await link.create(p.join(dir.path, 'real.txt'));
-      await disk.put('link.txt', 'new');
+      // a dangling symlink stays a link, and its target is made
+      Link link = Link(p.join(dir.path, 'h', 'link.txt'));
+      await link.create(p.join(dir.path, 'h', 'target.txt'));
+      await disk.put('h/link.txt', 'via link');
       expect(await FileSystemEntity.isLink(link.path), isTrue);
-      expect(await disk.getString('real.txt'), 'new');
+      expect(await disk.getString('h/target.txt'), 'via link');
+
+      // no temp files are hidden from listAll
+      await disk.put('h/x${StorageConstants.localTempSuffix}', 'mine');
+      ListResult list = await disk.listAll('h');
+      expect(
+        list.objects.map(_key),
+        contains('h/x${StorageConstants.localTempSuffix}'),
+      );
     }, testOn: '!windows');
 
     group('signed URLs', () {
@@ -299,6 +325,17 @@ void main() {
         expect(signer.verify('1:d\nk', url.queryParameters), isFalse);
       });
 
+      test('an old URL for key `1:d\\nk` does not open key k on disk d', () {
+        LocalUrlSigner signer = LocalUrlSigner(
+          'test-app-key',
+          disk: 'd',
+          clock: clock,
+        );
+        Map<String, String> query = _oldQuery('1:d\nk', clock, 10);
+        expect(signer.verify('1:d\nk', query), isTrue);
+        expect(signer.verify('k', query), isFalse);
+      });
+
       test('LocalUrlSigner needs an app key', () {
         expect(() => LocalUrlSigner(''), throwsArgumentError);
       });
@@ -306,7 +343,11 @@ void main() {
   });
 }
 
-int _mode(File file) => file.statSync().mode & 511;
+Disk _atomic(Directory dir) {
+  return Disk(
+    LocalDriver(LocalDriverConfig(root: dir.path, atomicWrites: true)),
+  );
+}
 
 /// Query of a signed URL in the 3.0.1 format: HMAC of `key\nexpires`.
 Map<String, String> _oldQuery(String key, FixedClock clock, int minutes) {

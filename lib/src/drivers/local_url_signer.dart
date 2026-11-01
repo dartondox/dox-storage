@@ -22,8 +22,6 @@ import '../key_normalizer.dart';
 class LocalUrlSigner {
   final List<int> _secret;
 
-  static final RegExp _looksLikeNewText = RegExp(r'^\d+:[^\n]*\n');
-
   /// Name of the disk this signer is for.
   final String disk;
   final Clock clock;
@@ -79,16 +77,16 @@ class LocalUrlSigner {
     }
     // old format of 3.0.1 and older: keeps URLs signed before the upgrade
     // working until they expire. Remove in the next major version.
-    // A key like `1:d\nk` reads the same as new text for disk `d` and key
-    // `k`. Skip the old format for such keys, so a new URL can not open them.
-    if (_looksLikeNewText.hasMatch(cleanKey)) return false;
     return _constantTimeEquals(_legacySignature(cleanKey, expires), signature);
   }
 
   String _signature(String key, int expires) {
     // the length prefix keeps disk `a` + key `b\nc` apart from
-    // disk `a\nb` + key `c`.
-    return _hmac('${disk.length}:$disk\n$key\n$expires');
+    // disk `a\nb` + key `c`. The null byte at the start keeps new text
+    // apart from old text in both ways: a key can not hold a null byte,
+    // so old text never starts with one. Without it, an old URL for key
+    // `1:d\nk` would open key `k` on disk `d`, and the other way round.
+    return _hmac('\u0000${disk.length}:$disk\n$key\n$expires');
   }
 
   String _legacySignature(String key, int expires) {

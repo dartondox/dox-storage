@@ -44,7 +44,8 @@ class Storage {
   /// with [signed] (default) only URLs from `Storage().signedUrl()` work,
   /// others get 403. set the disk `url` option to the full url of [path].
   /// [signed] needs a local disk. on another disk every request gets 403,
-  /// and the log says why.
+  /// and the exception handler
+  /// reports why.
   ///
   /// html, svg, xml and javascript files are always sent as a download in
   /// a sandbox, so an uploaded file can not run script on the app origin.
