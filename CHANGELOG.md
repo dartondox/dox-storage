@@ -1,6 +1,7 @@
 ## Unreleased
 
 - Breaking: a local signed URL now includes the disk name in its signature. Before, a URL signed for one local disk also worked on the route of another local disk with the same file key. Signed URLs made before this version stop working. `LocalDriverConfig` has a new `disk` option; `StorageDiskFactory` sets it to the disk name.
+- Fix: `LocalDriver.put()` and `putStream()` wrote straight into the file. A failed or stopped upload left a partial file, or broke the old file. They now write to a temp file in the same folder and rename it when the write is done. On an error the temp file is deleted and the old file stays.
 
 ## 3.0.1
 

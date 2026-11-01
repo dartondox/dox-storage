@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dox_storage/dox_storage.dart';
@@ -129,6 +130,30 @@ void main() {
       );
     }, testOn: '!windows');
 
+    test('a failed stream upload leaves no partial file', () async {
+      await disk.put('up/a.txt', 'old');
+      StreamController<List<int>> upload = StreamController<List<int>>();
+      Future<void> write = disk.putStream('up/a.txt', upload.stream);
+      upload.add(<int>[1, 2, 3]);
+      upload.addError(StateError('client went away'));
+      await upload.close();
+      await expectLater(write, throwsA(anything));
+      expect(await disk.getString('up/a.txt'), 'old');
+      expect(Directory(p.join(dir.path, 'up')).listSync().map(_name), <String>[
+        'a.txt',
+      ]);
+
+      StreamController<List<int>> fresh = StreamController<List<int>>();
+      Future<void> other = disk.putStream('up/new.txt', fresh.stream);
+      fresh.addError(StateError('client went away'));
+      await fresh.close();
+      await expectLater(other, throwsA(anything));
+      expect(await disk.exists('up/new.txt'), isFalse);
+      expect(Directory(p.join(dir.path, 'up')).listSync().map(_name), <String>[
+        'a.txt',
+      ]);
+    });
+
     group('signed URLs', () {
       Future<Uri> signed(String key) async {
         String url = await disk.getSignedUrl(
@@ -202,3 +227,5 @@ void main() {
     });
   });
 }
+
+String _name(FileSystemEntity entity) => p.basename(entity.path);

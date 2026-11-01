@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:mime/mime.dart';
@@ -53,6 +54,7 @@ class LocalDriver implements DriverContract {
 
   final LocalUrlSigner? signer;
   final Listing _listing = const Listing();
+  final Random _random = Random();
 
   LocalDriver(
     this.config, {
@@ -189,8 +191,8 @@ class LocalDriver implements DriverContract {
 
   @override
   Future<void> put(String key, Uint8List contents, WriteOptions options) async {
-    File file = await _writableFile(key);
-    await _io(key, file.writeAsBytes(contents, flush: true));
+    File temp = await _tempFile(key);
+    await _replace(key, temp, temp.writeAsBytes(contents, flush: true));
   }
 
   @override
@@ -199,12 +201,42 @@ class LocalDriver implements DriverContract {
     Stream<List<int>> contents,
     WriteOptions options,
   ) async {
-    File file = await _writableFile(key);
+    File temp = await _tempFile(key);
+    await _replace(key, temp, _writeStream(temp, contents));
+  }
+
+  Future<void> _writeStream(File file, Stream<List<int>> contents) async {
     IOSink sink = file.openWrite();
     try {
       await sink.addStream(contents);
     } finally {
       await sink.close();
+    }
+  }
+
+  /// A new temp file next to the file of [key]. Same folder, so the
+  /// rename in [_replace] does not cross file systems.
+  Future<File> _tempFile(String key) async {
+    File file = await _writableFile(key);
+    String name =
+        '.${p.basename(file.path)}.'
+        '${DateTime.now().microsecondsSinceEpoch}-'
+        '${_random.nextInt(1 << 32)}.tmp';
+    return File(p.join(file.parent.path, name));
+  }
+
+  /// Wait for [write] into [temp], then rename [temp] to the file of [key].
+  /// Readers see the old file or the full new file, never a partial one.
+  /// On error the temp file is deleted.
+  Future<void> _replace(String key, File temp, Future<void> write) async {
+    try {
+      await _io(key, write);
+      await _io(key, temp.rename(pathFor(key)));
+    } catch (_) {
+      if (await temp.exists()) {
+        await temp.delete();
+      }
+      rethrow;
     }
   }
 
