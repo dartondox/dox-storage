@@ -14,8 +14,15 @@ import '../key_normalizer.dart';
 ///
 /// The signature covers [disk], so a URL signed for one disk does not
 /// work on the route of another disk.
+///
+/// [verify] also accepts the old format (`key\nexpires`, no disk) from
+/// 3.0.1 and older, so URLs made before an upgrade keep working until
+/// they expire. Like before, such an old URL works on the route of any
+/// local disk with the same app key. This ends when the old URLs expire.
 class LocalUrlSigner {
   final List<int> _secret;
+
+  static final RegExp _looksLikeNewText = RegExp(r'^\d+:[^\n]*\n');
 
   /// Name of the disk this signer is for.
   final String disk;
@@ -67,16 +74,29 @@ class LocalUrlSigner {
     if (clock.now().millisecondsSinceEpoch > expires) {
       return false;
     }
-    return _constantTimeEquals(_signature(cleanKey, expires), signature);
+    if (_constantTimeEquals(_signature(cleanKey, expires), signature)) {
+      return true;
+    }
+    // old format of 3.0.1 and older: keeps URLs signed before the upgrade
+    // working until they expire. Remove in the next major version.
+    // A key like `1:d\nk` reads the same as new text for disk `d` and key
+    // `k`. Skip the old format for such keys, so a new URL can not open them.
+    if (_looksLikeNewText.hasMatch(cleanKey)) return false;
+    return _constantTimeEquals(_legacySignature(cleanKey, expires), signature);
   }
 
   String _signature(String key, int expires) {
-    Hmac hmac = Hmac(sha256, _secret);
     // the length prefix keeps disk `a` + key `b\nc` apart from
     // disk `a\nb` + key `c`.
-    return hmac
-        .convert(utf8.encode('${disk.length}:$disk\n$key\n$expires'))
-        .toString();
+    return _hmac('${disk.length}:$disk\n$key\n$expires');
+  }
+
+  String _legacySignature(String key, int expires) {
+    return _hmac('$key\n$expires');
+  }
+
+  String _hmac(String text) {
+    return Hmac(sha256, _secret).convert(utf8.encode(text)).toString();
   }
 
   bool _constantTimeEquals(String a, String b) {

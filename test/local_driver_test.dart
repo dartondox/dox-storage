@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:dox_storage/dox_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -177,6 +179,32 @@ void main() {
       expect(await disk.getString('up/b.txt'), '\x01');
     });
 
+    test('a new file gets the same mode as File.writeAsBytes', () async {
+      await disk.put('m/new.txt', 'x');
+      File plain = File(p.join(dir.path, 'm', 'plain.txt'));
+      await plain.writeAsBytes(<int>[1], flush: true);
+      expect(_mode(File(p.join(dir.path, 'm', 'new.txt'))), _mode(plain));
+    }, testOn: '!windows');
+
+    test('an overwrite keeps the mode of the old file', () async {
+      await disk.put('m/a.txt', 'old');
+      File file = File(p.join(dir.path, 'm', 'a.txt'));
+      await Process.run('chmod', <String>['600', file.path]);
+      await disk.put('m/a.txt', 'new');
+      expect(_mode(file), 384); // 0600
+      await disk.putStream('m/a.txt', Stream<List<int>>.value(<int>[1]));
+      expect(_mode(file), 384);
+    }, testOn: '!windows');
+
+    test('a write to a symlink goes to the file it points to', () async {
+      await disk.put('real.txt', 'old');
+      Link link = Link(p.join(dir.path, 'link.txt'));
+      await link.create(p.join(dir.path, 'real.txt'));
+      await disk.put('link.txt', 'new');
+      expect(await FileSystemEntity.isLink(link.path), isTrue);
+      expect(await disk.getString('real.txt'), 'new');
+    }, testOn: '!windows');
+
     group('signed URLs', () {
       Future<Uri> signed(String key) async {
         String url = await disk.getSignedUrl(
@@ -244,11 +272,52 @@ void main() {
         expect(same.verify('a.pdf', url.queryParameters), isTrue);
       });
 
+      test('an old format URL from 3.0.1 still works until it expires', () {
+        LocalUrlSigner signer = LocalUrlSigner(
+          'test-app-key',
+          disk: 'backups',
+          clock: clock,
+        );
+        Map<String, String> query = _oldQuery('a.pdf', clock, 10);
+        expect(signer.verify('a.pdf', query), isTrue);
+        expect(driver.verifySignedUrl('a.pdf', query), isTrue);
+        expect(driver.verifySignedUrl('b.pdf', query), isFalse);
+        clock.time = clock.time.add(const Duration(minutes: 11));
+        expect(signer.verify('a.pdf', query), isFalse);
+      });
+
+      test('a new URL does not open a key that looks like new text', () {
+        LocalUrlSigner signer = LocalUrlSigner(
+          'test-app-key',
+          disk: 'd',
+          clock: clock,
+        );
+        Uri url = Uri.parse(
+          signer.sign('https://app.test', 'k', const Duration(minutes: 5)),
+        );
+        expect(signer.verify('k', url.queryParameters), isTrue);
+        expect(signer.verify('1:d\nk', url.queryParameters), isFalse);
+      });
+
       test('LocalUrlSigner needs an app key', () {
         expect(() => LocalUrlSigner(''), throwsArgumentError);
       });
     });
   });
+}
+
+int _mode(File file) => file.statSync().mode & 511;
+
+/// Query of a signed URL in the 3.0.1 format: HMAC of `key\nexpires`.
+Map<String, String> _oldQuery(String key, FixedClock clock, int minutes) {
+  int expires = clock.time
+      .add(Duration(minutes: minutes))
+      .millisecondsSinceEpoch;
+  String signature = Hmac(
+    sha256,
+    utf8.encode('test-app-key'),
+  ).convert(utf8.encode('$key\n$expires')).toString();
+  return <String, String>{'expires': '$expires', 'signature': signature};
 }
 
 String _name(FileSystemEntity entity) => p.basename(entity.path);
