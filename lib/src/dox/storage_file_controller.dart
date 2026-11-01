@@ -38,14 +38,20 @@ class StorageFileController {
   bool _verify(String key, Map<String, String> query) {
     DriverContract driver = Storage().use(disk).driver;
     if (driver is! LocalDriver) {
-      // a setup error, not a bad URL: say so in the log, not as a 403.
+      // a setup error, not a bad URL. Keep the 403 of 3.0.1, but report
+      // why to the app's exception handler, so it shows in the log.
       String name = disk ?? Storage.manager.defaultDisk;
-      throw UnsupportedOperationException(
-        key,
-        'Storage.route() with signed: true only works with a local disk. '
-        'Disk "$name" uses ${driver.runtimeType}. Use signed: false, '
-        'or send users to the URL from signedUrl() on that disk.',
+      Dox().config.exceptionHandler.report(
+        UnsupportedOperationException(
+          key,
+          'Storage.route() with signed: true only works with a local disk. '
+          'Disk "$name" uses ${driver.runtimeType}, so every request gets '
+          '403. Use signed: false, or send users to the URL from '
+          'signedUrl() on that disk.',
+        ),
+        StackTrace.current,
       );
+      return false;
     }
     return driver.verifySignedUrl(key, query);
   }

@@ -74,6 +74,7 @@ class StorageDiskFactory {
           LocalDriverConfig(
             root: options['root'] as String? ?? 'storage',
             disk: name,
+            atomicWrites: options['atomic_writes'] == true,
             urlBase: _text(options['url']),
             appKey: _text(options['app_key']) ?? _text(appKey),
             visibility: _visibility(options['visibility'], Visibility.public),

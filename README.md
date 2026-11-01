@@ -89,7 +89,8 @@ Without the provider, `Storage()` has one `local` disk in the `storage` folder.
 
 - Drivers: `LocalDriver`, `S3Driver` (AWS S3, Cloudflare R2, MinIO, DigitalOcean Spaces, GCS with HMAC keys) and `MemoryDriver`.
 - `put`, `putStream`, `get`, `getStream`, `copy`, `move`, `delete`, `listAll`.
-- Signed download URLs, and signed upload URLs on S3.
+- Signed download URLs, and signed upload URLs on S3. A local signed URL only works on the route of its own disk.
+- Opt-in atomic local writes (`atomicWrites: true`). A failed upload never leaves a partial file.
 - Big streams go up as a multipart upload. Only one part is in memory at a time.
 - Keys are checked. `..`, absolute paths and null bytes throw `InvalidKeyException`.
 - `drive.fake('s3')` swaps a disk for memory in tests.

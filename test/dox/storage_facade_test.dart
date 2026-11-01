@@ -149,13 +149,12 @@ void main() {
       },
     );
 
-    test('a signed route on a non-local disk says why it fails', () async {
+    test('a signed route on a non-local disk is 403 and reports why', () async {
       _QuietExceptionHandler.lastError = null;
       http.Response res = await http.get(
         Uri.parse('$baseUrl/memory-files/a.txt?signature=x&expires=1'),
       );
-      expect(res.statusCode, isNot(200));
-      expect(res.statusCode, isNot(403));
+      expect(res.statusCode, 403);
       expect(
         _QuietExceptionHandler.lastError,
         isA<UnsupportedOperationException>().having(
