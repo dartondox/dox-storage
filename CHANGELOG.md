@@ -1,3 +1,8 @@
+## 3.0.1
+
+- Fix: `Storage.route()` decoded the file key a second time. A key with a real `%`, like `100%.txt`, gave the wrong file or a 500. Dox core 3.0.1 already decodes the path, so the route now uses the key as it is.
+- Needs `dox_core` 3.0.1 or newer.
+
 ## 3.0.0
 
 - The first stable release.

@@ -116,6 +116,38 @@ void main() {
       }
     });
 
+    test('a key with a real percent is decoded once', () async {
+      await Storage().use().put('pct/100%.txt', utf8.encode('pct'));
+      http.Response res = await http.get(
+        Uri.parse('$baseUrl/public-files/pct/100%25.txt'),
+      );
+      expect(res.statusCode, 200);
+      expect(res.body, 'pct');
+    });
+
+    test('unsigned and signed routes answer 404 for a missing file', () async {
+      http.Response res = await http.get(
+        Uri.parse('$baseUrl/public-files/nope/missing.txt'),
+      );
+      expect(res.statusCode, 404);
+      String url = await Storage().signedUrl('/nope/missing.txt');
+      expect((await http.get(Uri.parse(url))).statusCode, 404);
+    });
+
+    test(
+      'signed route is 403 for a bad signature, before any file read',
+      () async {
+        http.Response res = await http.get(
+          Uri.parse('$baseUrl/files/nope/missing.txt?signature=bad&expires=1'),
+        );
+        expect(res.statusCode, 403);
+        http.Response outside = await http.get(
+          Uri.parse('$baseUrl/files/..%2Fpubspec.yaml'),
+        );
+        expect(outside.statusCode, 403);
+      },
+    );
+
     test('memory disk works through the same facade', () async {
       String path = await Storage()
           .disk('memory')

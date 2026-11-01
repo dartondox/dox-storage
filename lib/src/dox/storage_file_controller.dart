@@ -21,8 +21,10 @@ class StorageFileController {
   final bool download;
 
   /// `GET <path>/{key*}`
+  /// Dox core already decodes [key]. Do not decode it again.
+  /// A missing file or a key outside the disk answers 404 (see `stream`).
   Future<dynamic> serve(DoxRequest req, String key) async {
-    String fileKey = Uri.decodeComponent(key);
+    String fileKey = key;
     if (signed && !_verify(fileKey, req.uri.queryParameters)) {
       return response('invalid or expired signature')
           .statusCode(HttpStatus.forbidden);
