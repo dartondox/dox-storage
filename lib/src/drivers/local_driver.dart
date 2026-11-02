@@ -20,7 +20,8 @@ class LocalDriverConfig {
   final String root;
 
   /// Public URL base, for example `https://app.test/uploads`.
-  /// Needed for `getUrl` and `getSignedUrl`.
+  /// Needed for `getSignedUrl`. When null, `getUrl` gives
+  /// `/storage/<key>`, like Laravel.
   final String? urlBase;
 
   /// Secret for signed URLs (use your APP_KEY). Needed for `getSignedUrl`.
@@ -170,10 +171,9 @@ class LocalDriver implements DriverContract {
 
   @override
   Future<String> getUrl(String key) async {
-    String? base = config.urlBase;
-    if (base == null) {
-      throw UnsupportedOperationException(key, 'urlBase is not configured');
-    }
+    // ponytail: no route serves /storage by default. The app adds one,
+    // like `Storage.route('storage', signed: false)`.
+    String base = config.urlBase ?? '/storage';
     if (base.endsWith('/')) {
       base = base.substring(0, base.length - 1);
     }
