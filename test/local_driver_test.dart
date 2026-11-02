@@ -100,12 +100,16 @@ void main() {
       );
     });
 
-    test('getUrl without urlBase is unsupported', () async {
+    test('getUrl without urlBase gives /storage/<key>', () async {
       Disk plain = Disk(LocalDriver(LocalDriverConfig(root: dir.path)));
       expect(
-        plain.getUrl('a.txt'),
-        throwsA(isA<UnsupportedOperationException>()),
+        await plain.getUrl('my dir/a b.png'),
+        '/storage/my%20dir/a%20b.png',
       );
+    });
+
+    test('getSignedUrl without urlBase is unsupported', () async {
+      Disk plain = Disk(LocalDriver(LocalDriverConfig(root: dir.path)));
       expect(
         plain.getSignedUrl('a.txt'),
         throwsA(isA<UnsupportedOperationException>()),
