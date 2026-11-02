@@ -144,6 +144,37 @@ class Storage {
     return use().delete(_key(filename));
   }
 
+  /// add text to the end of a file. a missing file is made.
+  /// [separator] is added only when the file is not empty.
+  Future<void> append(String filename, String data, {String separator = '\n'}) {
+    return use().append(_key(filename), data, separator: separator);
+  }
+
+  /// add text to the start of a file. a missing file is made.
+  /// [separator] is added only when the file is not empty.
+  Future<void> prepend(
+    String filename,
+    String data, {
+    String separator = '\n',
+  }) {
+    return use().prepend(_key(filename), data, separator: separator);
+  }
+
+  /// make a folder on a local disk. on other disks it does nothing.
+  Future<void> makeDirectory(String path) {
+    return use().makeDirectory(_key(path));
+  }
+
+  /// size of a file in bytes. a missing file throws.
+  Future<int> size(String filename) {
+    return use().size(_key(filename));
+  }
+
+  /// last modified time of a file. a missing file throws.
+  Future<DateTime> lastModified(String filename) {
+    return use().lastModified(_key(filename));
+  }
+
   /// public URL of a file (needs `url` in the disk config)
   Future<String> url(String filename) {
     return use().getUrl(_key(filename));

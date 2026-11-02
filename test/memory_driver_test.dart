@@ -11,6 +11,12 @@ void main() {
   });
 
   group('MemoryDriver', () {
+    test('makeDirectory does nothing and does not throw', () async {
+      MemoryDriver driver = MemoryDriver();
+      await Disk(driver).makeDirectory('a/b');
+      expect(driver.keys, isEmpty);
+    });
+
     test('visibility is stored per file', () async {
       Disk disk = Disk(MemoryDriver(visibility: Visibility.private));
       await disk.put('a.txt', 'a');

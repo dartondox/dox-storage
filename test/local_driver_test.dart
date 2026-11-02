@@ -86,6 +86,19 @@ void main() {
       expect(outside.existsSync(), isFalse);
     });
 
+    test('makeDirectory makes the folder and its parents', () async {
+      await disk.makeDirectory('a/b/c');
+      expect(Directory(p.join(dir.path, 'a', 'b', 'c')).existsSync(), true);
+      await disk.makeDirectory('a/b/c');
+    });
+
+    test('append on a file with text adds a newline', () async {
+      File file = File(p.join(dir.path, 'log.txt'));
+      file.writeAsStringSync('one');
+      await disk.append('log.txt', 'two');
+      expect(file.readAsStringSync(), 'one\ntwo');
+    });
+
     test('deleteAll() keeps the root folder', () async {
       await disk.put('a/b.txt', 'x');
       await disk.deleteAll();

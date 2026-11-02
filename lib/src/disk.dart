@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'driver_contract.dart';
+import 'drivers/local_driver.dart';
 import 'exceptions.dart';
 import 'key_normalizer.dart';
 import 'types.dart';
@@ -95,6 +96,82 @@ class Disk {
       return await driver.getMetaData(k);
     } catch (error, stack) {
       _fail(error, stack, k);
+    }
+  }
+
+  /// Size of a file in bytes. A missing file throws
+  /// [FileNotFoundException].
+  Future<int> size(String key) async {
+    ObjectMetaData meta = await getMetaData(key);
+    return meta.size;
+  }
+
+  /// Last modified time of a file. A missing file throws
+  /// [FileNotFoundException].
+  Future<DateTime> lastModified(String key) async {
+    ObjectMetaData meta = await getMetaData(key);
+    return meta.lastModified;
+  }
+
+  /// Add [data] to the end of a file. A missing file is made.
+  /// [separator] goes between the old text and [data], but only when the
+  /// file is not empty.
+  Future<void> append(
+    String key,
+    String data, {
+    String separator = '\n',
+  }) async {
+    Uint8List old = await _getOrEmpty(key);
+    BytesBuilder out = BytesBuilder(copy: false)..add(old);
+    if (old.isNotEmpty) {
+      out.add(utf8.encode(separator));
+    }
+    out.add(utf8.encode(data));
+    await put(key, out.takeBytes());
+  }
+
+  /// Add [data] to the start of a file. A missing file is made.
+  /// [separator] goes between [data] and the old text, but only when the
+  /// file is not empty.
+  Future<void> prepend(
+    String key,
+    String data, {
+    String separator = '\n',
+  }) async {
+    Uint8List old = await _getOrEmpty(key);
+    BytesBuilder out = BytesBuilder(copy: false)..add(utf8.encode(data));
+    if (old.isNotEmpty) {
+      out.add(utf8.encode(separator));
+    }
+    out.add(old);
+    await put(key, out.takeBytes());
+  }
+
+  /// Make a folder, with its parent folders. Only the local disk has real
+  /// folders. On other disks (S3, memory) this does nothing.
+  Future<void> makeDirectory(String path) async {
+    String k = normalizer.key(path);
+    DriverContract target = driver;
+    // ponytail: only LocalDriver has real folders. A custom driver with
+    // folders can add an opt-in interface later; no new abstract method.
+    if (target is! LocalDriver) {
+      return;
+    }
+    try {
+      await Directory(target.pathFor(k)).create(recursive: true);
+    } catch (error, stack) {
+      _fail(error, stack, k);
+    }
+  }
+
+  /// Read a file, or empty bytes when it does not exist.
+  // ponytail: read then write, not atomic. Two writers at the same time
+  // can lose a write. Use a lock or a real append if that matters.
+  Future<Uint8List> _getOrEmpty(String key) async {
+    try {
+      return await get(key);
+    } on FileNotFoundException {
+      return Uint8List(0);
     }
   }
 
