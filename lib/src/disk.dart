@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'driver_contract.dart';
+import 'drivers/local_driver.dart';
 import 'exceptions.dart';
 import 'key_normalizer.dart';
 import 'types.dart';
@@ -96,6 +97,108 @@ class Disk {
     } catch (error, stack) {
       _fail(error, stack, k);
     }
+  }
+
+  /// Size of a file in bytes. A missing file throws
+  /// [FileNotFoundException].
+  Future<int> size(String key) async {
+    ObjectMetaData meta = await getMetaData(key);
+    return meta.size;
+  }
+
+  /// Last modified time of a file. A missing file throws
+  /// [FileNotFoundException].
+  Future<DateTime> lastModified(String key) async {
+    ObjectMetaData meta = await getMetaData(key);
+    return meta.lastModified;
+  }
+
+  /// Add [data] to the end of a file. A missing file is made.
+  /// [separator] goes between the old text and [data], but only when the
+  /// file is not empty.
+  Future<void> append(
+    String key,
+    String data, {
+    String separator = '\n',
+  }) async {
+    Uint8List? old = await _getOrNull(key);
+    BytesBuilder out = BytesBuilder(copy: false);
+    if (old != null && old.isNotEmpty) {
+      out.add(old);
+      out.add(utf8.encode(separator));
+    }
+    out.add(utf8.encode(data));
+    await put(key, out.takeBytes(), options: await _keepOptions(key, old));
+  }
+
+  /// Add [data] to the start of a file. A missing file is made.
+  /// [separator] goes between [data] and the old text, but only when the
+  /// file is not empty.
+  Future<void> prepend(
+    String key,
+    String data, {
+    String separator = '\n',
+  }) async {
+    Uint8List? old = await _getOrNull(key);
+    BytesBuilder out = BytesBuilder(copy: false)..add(utf8.encode(data));
+    if (old != null && old.isNotEmpty) {
+      out.add(utf8.encode(separator));
+      out.add(old);
+    }
+    await put(key, out.takeBytes(), options: await _keepOptions(key, old));
+  }
+
+  /// Make a folder, with its parent folders. Only the local disk has real
+  /// folders. On any disk that is not local (S3, memory, custom drivers)
+  /// this does nothing.
+  Future<void> makeDirectory(String path) async {
+    String k = normalizer.key(path);
+    DriverContract target = driver;
+    // ponytail: only LocalDriver has real folders. A custom driver with
+    // folders can add an opt-in interface later; no new abstract method.
+    if (target is! LocalDriver) {
+      return;
+    }
+    try {
+      await Directory(target.pathFor(k)).create(recursive: true);
+    } on PathAccessException catch (error, stack) {
+      Error.throwWithStackTrace(
+        PermissionDeniedException(k, cause: error),
+        stack,
+      );
+    } catch (error, stack) {
+      _fail(error, stack, k);
+    }
+  }
+
+  /// Read a file, or null when it does not exist.
+  // ponytail: read then write, not atomic. Two writers at the same time
+  // can lose a write. Use a lock or a real append if that matters.
+  Future<Uint8List?> _getOrNull(String key) async {
+    try {
+      return await get(key);
+    } on FileNotFoundException {
+      return null;
+    }
+  }
+
+  /// Write options that keep the visibility and content type of a file
+  /// that already exists. So `append` does not make a private file public.
+  /// A missing file ([old] is null) uses the disk defaults.
+  Future<WriteOptions> _keepOptions(String key, Uint8List? old) async {
+    // ponytail: a local disk keeps no per-file visibility or content type,
+    // so skip the extra reads there.
+    if (old == null || driver is LocalDriver) {
+      return const WriteOptions();
+    }
+    Visibility? visibility;
+    try {
+      visibility = await getVisibility(key);
+    } on UnsupportedOperationException {
+      visibility = null;
+    }
+    ObjectMetaData meta = await getMetaData(key);
+    return WriteOptions(contentType: meta.contentType, visibility: visibility);
   }
 
   /// True when the file exists.

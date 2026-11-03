@@ -119,6 +119,60 @@ void runDiskContract(
       );
     });
 
+    test('size and lastModified', () async {
+      DateTime before = DateTime.now().subtract(const Duration(minutes: 5));
+      await disk.put('meta/size.txt', '12345');
+      expect(await disk.size('meta/size.txt'), 5);
+      expect((await disk.lastModified('meta/size.txt')).isAfter(before), true);
+    });
+
+    test('size and lastModified of a missing file throw', () async {
+      expect(disk.size('nope.txt'), throwsA(isA<FileNotFoundException>()));
+      expect(
+        disk.lastModified('nope.txt'),
+        throwsA(isA<FileNotFoundException>()),
+      );
+    });
+
+    test('append and prepend to a missing file make it', () async {
+      await disk.append('log/a.txt', 'one');
+      expect(await disk.getString('log/a.txt'), 'one');
+      await disk.prepend('log/b.txt', 'one');
+      expect(await disk.getString('log/b.txt'), 'one');
+    });
+
+    test('append and prepend to an empty file add no separator', () async {
+      await disk.put('log/a.txt', '');
+      await disk.append('log/a.txt', 'one');
+      expect(await disk.getString('log/a.txt'), 'one');
+      await disk.put('log/b.txt', '');
+      await disk.prepend('log/b.txt', 'one');
+      expect(await disk.getString('log/b.txt'), 'one');
+    });
+
+    test('append and prepend use a newline by default', () async {
+      await disk.put('log/a.txt', 'mid');
+      await disk.append('log/a.txt', 'end');
+      await disk.prepend('log/a.txt', 'start');
+      expect(await disk.getString('log/a.txt'), 'start\nmid\nend');
+    });
+
+    test('append and prepend with a custom separator', () async {
+      await disk.put('log/a.txt', 'b');
+      await disk.append('log/a.txt', 'c', separator: ', ');
+      await disk.prepend('log/a.txt', 'a', separator: '');
+      expect(await disk.getString('log/a.txt'), 'ab, c');
+    });
+
+    test('new helpers refuse a .. key', () async {
+      Matcher invalid = throwsA(isA<InvalidKeyException>());
+      expect(disk.append('../x.txt', 'x'), invalid);
+      expect(disk.prepend('a/../../x.txt', 'x'), invalid);
+      expect(disk.size('../x.txt'), invalid);
+      expect(disk.lastModified('../x.txt'), invalid);
+      expect(disk.makeDirectory('../dir'), invalid);
+    });
+
     test('exists', () async {
       expect(await disk.exists('e.txt'), isFalse);
       await disk.put('e.txt', 'x');

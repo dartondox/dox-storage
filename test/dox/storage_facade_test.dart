@@ -176,6 +176,20 @@ void main() {
       expect(res.headers['content-type'], startsWith('text/plain'));
     });
 
+    test('append, prepend, size, lastModified, makeDirectory', () async {
+      Storage memory = Storage().disk('memory');
+      await memory.append('/facade/log.txt', 'b');
+      await memory.append('/facade/log.txt', 'c');
+      await memory.prepend('/facade/log.txt', 'a');
+      expect(utf8.decode((await memory.get('/facade/log.txt'))!), 'a\nb\nc');
+      expect(await memory.size('/facade/log.txt'), 5);
+      expect(await memory.lastModified('/facade/log.txt'), isA<DateTime>());
+      await memory.makeDirectory('/facade/dir');
+      await Storage().makeDirectory('facade-dir/sub');
+      expect(Directory('$root/facade-dir/sub').existsSync(), true);
+      await Directory('$root/facade-dir').delete(recursive: true);
+    });
+
     test('signed local URL is served, a bad one is 403', () async {
       String path = await Storage().put(
         'secret',
