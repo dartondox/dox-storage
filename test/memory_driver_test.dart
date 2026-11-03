@@ -17,6 +17,31 @@ void main() {
       expect(driver.keys, isEmpty);
     });
 
+    test('append and prepend keep a private file private', () async {
+      // The memory disk default is public.
+      Disk disk = Disk(MemoryDriver());
+      await disk.put(
+        'a.txt',
+        'one',
+        options: const WriteOptions(contentType: 'text/x-custom'),
+      );
+      await disk.setVisibility('a.txt', Visibility.private);
+      await disk.append('a.txt', 'two');
+      expect(await disk.getVisibility('a.txt'), Visibility.private);
+      expect((await disk.getMetaData('a.txt')).contentType, 'text/x-custom');
+      await disk.prepend('a.txt', 'zero');
+      expect(await disk.getVisibility('a.txt'), Visibility.private);
+      expect((await disk.getMetaData('a.txt')).contentType, 'text/x-custom');
+      expect(await disk.getString('a.txt'), 'zero\none\ntwo');
+    });
+
+    test('append on a missing file uses the disk default', () async {
+      // The memory disk default is public.
+      Disk disk = Disk(MemoryDriver());
+      await disk.append('new.txt', 'x');
+      expect(await disk.getVisibility('new.txt'), Visibility.public);
+    });
+
     test('visibility is stored per file', () async {
       Disk disk = Disk(MemoryDriver(visibility: Visibility.private));
       await disk.put('a.txt', 'a');

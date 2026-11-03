@@ -121,13 +121,14 @@ class Disk {
     String data, {
     String separator = '\n',
   }) async {
-    Uint8List old = await _getOrEmpty(key);
-    BytesBuilder out = BytesBuilder(copy: false)..add(old);
-    if (old.isNotEmpty) {
+    Uint8List? old = await _getOrNull(key);
+    BytesBuilder out = BytesBuilder(copy: false);
+    if (old != null && old.isNotEmpty) {
+      out.add(old);
       out.add(utf8.encode(separator));
     }
     out.add(utf8.encode(data));
-    await put(key, out.takeBytes());
+    await put(key, out.takeBytes(), options: await _keepOptions(key, old));
   }
 
   /// Add [data] to the start of a file. A missing file is made.
@@ -138,17 +139,18 @@ class Disk {
     String data, {
     String separator = '\n',
   }) async {
-    Uint8List old = await _getOrEmpty(key);
+    Uint8List? old = await _getOrNull(key);
     BytesBuilder out = BytesBuilder(copy: false)..add(utf8.encode(data));
-    if (old.isNotEmpty) {
+    if (old != null && old.isNotEmpty) {
       out.add(utf8.encode(separator));
+      out.add(old);
     }
-    out.add(old);
-    await put(key, out.takeBytes());
+    await put(key, out.takeBytes(), options: await _keepOptions(key, old));
   }
 
   /// Make a folder, with its parent folders. Only the local disk has real
-  /// folders. On other disks (S3, memory) this does nothing.
+  /// folders. On any disk that is not local (S3, memory, custom drivers)
+  /// this does nothing.
   Future<void> makeDirectory(String path) async {
     String k = normalizer.key(path);
     DriverContract target = driver;
@@ -159,20 +161,44 @@ class Disk {
     }
     try {
       await Directory(target.pathFor(k)).create(recursive: true);
+    } on PathAccessException catch (error, stack) {
+      Error.throwWithStackTrace(
+        PermissionDeniedException(k, cause: error),
+        stack,
+      );
     } catch (error, stack) {
       _fail(error, stack, k);
     }
   }
 
-  /// Read a file, or empty bytes when it does not exist.
+  /// Read a file, or null when it does not exist.
   // ponytail: read then write, not atomic. Two writers at the same time
   // can lose a write. Use a lock or a real append if that matters.
-  Future<Uint8List> _getOrEmpty(String key) async {
+  Future<Uint8List?> _getOrNull(String key) async {
     try {
       return await get(key);
     } on FileNotFoundException {
-      return Uint8List(0);
+      return null;
     }
+  }
+
+  /// Write options that keep the visibility and content type of a file
+  /// that already exists. So `append` does not make a private file public.
+  /// A missing file ([old] is null) uses the disk defaults.
+  Future<WriteOptions> _keepOptions(String key, Uint8List? old) async {
+    // ponytail: a local disk keeps no per-file visibility or content type,
+    // so skip the extra reads there.
+    if (old == null || driver is LocalDriver) {
+      return const WriteOptions();
+    }
+    Visibility? visibility;
+    try {
+      visibility = await getVisibility(key);
+    } on UnsupportedOperationException {
+      visibility = null;
+    }
+    ObjectMetaData meta = await getMetaData(key);
+    return WriteOptions(contentType: meta.contentType, visibility: visibility);
   }
 
   /// True when the file exists.
