@@ -186,19 +186,28 @@ class Disk {
   /// that already exists. So `append` does not make a private file public.
   /// A missing file ([old] is null) uses the disk defaults.
   Future<WriteOptions> _keepOptions(String key, Uint8List? old) async {
-    // ponytail: a local disk keeps no per-file visibility or content type,
-    // so skip the extra reads there.
-    if (old == null || driver is LocalDriver) {
+    // ponytail: a plain local disk keeps no per-file visibility or content
+    // type, so skip the extra reads there. A subclass may override them,
+    // so only the exact LocalDriver type is skipped.
+    if (old == null || driver.runtimeType == LocalDriver) {
       return const WriteOptions();
     }
-    Visibility? visibility;
     try {
-      visibility = await getVisibility(key);
-    } on UnsupportedOperationException {
-      visibility = null;
+      Visibility? visibility;
+      try {
+        visibility = await getVisibility(key);
+      } on UnsupportedOperationException {
+        visibility = null;
+      }
+      ObjectMetaData meta = await getMetaData(key);
+      return WriteOptions(
+        contentType: meta.contentType,
+        visibility: visibility,
+      );
+    } on FileNotFoundException {
+      // Deleted after the read. Make it again with the disk defaults.
+      return const WriteOptions();
     }
-    ObjectMetaData meta = await getMetaData(key);
-    return WriteOptions(contentType: meta.contentType, visibility: visibility);
   }
 
   /// True when the file exists.
@@ -208,6 +217,43 @@ class Disk {
       return await driver.exists(k);
     } catch (error, stack) {
       _fail(error, stack, k);
+    }
+  }
+
+  /// True when the folder exists. On a local disk it checks the real
+  /// folder. On other disks (S3, memory) a folder exists when at least one
+  /// file has a key under it. [exists] stays true for files only.
+  Future<bool> directoryExists(String path) async {
+    String p = normalizer.prefix(path);
+    DriverContract target = driver;
+    try {
+      if (target is LocalDriver) {
+        return await Directory(target.pathFor(p)).exists();
+      }
+      ListResult result = await target.listAll(p, const ListOptions(limit: 1));
+      return result.objects.isNotEmpty;
+    } catch (error, stack) {
+      _fail(error, stack, p);
+    }
+  }
+
+  /// Test helper, like Laravel `Storage::assertExists`. Throws a
+  /// [StateError] when the file does not exist.
+  /// ```
+  /// Disk fake = drive.fake('s3');
+  /// await fake.assertExists('avatars/a.png');
+  /// ```
+  Future<void> assertExists(String key) async {
+    if (!await exists(key)) {
+      throw StateError('Expected file "$key" to exist, but it does not.');
+    }
+  }
+
+  /// Test helper, like Laravel `Storage::assertMissing`. Throws a
+  /// [StateError] when the file exists.
+  Future<void> assertMissing(String key) async {
+    if (await exists(key)) {
+      throw StateError('Expected file "$key" to be missing, but it exists.');
     }
   }
 

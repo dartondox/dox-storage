@@ -139,6 +139,40 @@ void main() {
       expect(url is String, true);
     });
 
+    test('store and storeAs on a chosen disk', () async {
+      Disk fake = Storage.manager.fake('uploads');
+      addTearDown(() => Storage.manager.restore('uploads'));
+      Route.post('/image/store-disk', (DoxRequest req) async {
+        RequestFile file = req.input('image') as RequestFile;
+        return await file.store('images', disk: 'uploads');
+      });
+      Route.post('/image/store-as', (DoxRequest req) async {
+        RequestFile file = req.input('image') as RequestFile;
+        return await file.storeAs('avatars', 'user-1.png', disk: 'uploads');
+      });
+      Route.post('/image/store-as-local', (DoxRequest req) async {
+        RequestFile file = req.input('image') as RequestFile;
+        return await file.storeAs('images', 'named.png');
+      });
+
+      String dir = Directory.current.path;
+      File imageFile = File('$dir/test/dox/fixtures/dox.png');
+      String? url = await uploadImage('$baseUrl/image/store-disk', imageFile);
+      expect(url, matches(RegExp(r'^/images/[0-9a-f-]+\.png$')));
+      await fake.assertExists(url!.substring(1));
+
+      url = await uploadImage('$baseUrl/image/store-as', imageFile);
+      expect(url, '/avatars/user-1.png');
+      expect(await fake.get('avatars/user-1.png'), imageFile.readAsBytesSync());
+
+      url = await uploadImage('$baseUrl/image/store-as-local', imageFile);
+      expect(url, '/images/named.png');
+      expect(
+        File('$dir/storage/images/named.png').readAsBytesSync(),
+        imageFile.readAsBytesSync(),
+      );
+    });
+
     test('store uses the extension of the bytes, not a wrong name', () async {
       Route.post('/image/store-renamed', (DoxRequest req) async {
         RequestFile file = req.input('image') as RequestFile;

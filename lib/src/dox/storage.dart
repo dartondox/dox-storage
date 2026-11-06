@@ -97,7 +97,24 @@ class Storage {
   /// used, so a png named `a.html` is stored as `.png`, not served as html.
   Future<String> putRequestFile(String folder, RequestFile requestFile) async {
     String? extension = await _extension(requestFile);
-    String key = _newKey(folder, extension);
+    return _storeRequestFile(_newKey(folder, extension), requestFile);
+  }
+
+  /// store the request file into storage with the given [name], like
+  /// Laravel `putFileAs`. an old file with the same name is replaced.
+  /// ```
+  /// String path = await Storage().putRequestFileAs('avatars', 'u1.png', file);
+  /// ```
+  Future<String> putRequestFileAs(
+    String folder,
+    String name,
+    RequestFile requestFile,
+  ) {
+    String dir = _key(folder);
+    return _storeRequestFile(dir.isEmpty ? name : '$dir/$name', requestFile);
+  }
+
+  Future<String> _storeRequestFile(String key, RequestFile requestFile) async {
     Disk target = use();
     DriverContract driver = target.driver;
     if (driver is LocalDriver) {
@@ -190,6 +207,20 @@ class Storage {
       _key(filename),
       options: SignedUrlOptions(expiresIn: expiresIn),
     );
+  }
+
+  /// the same as [signedUrl]. Laravel calls it `temporaryUrl`.
+  Future<String> temporaryUrl(
+    String filename, {
+    Duration expiresIn = const Duration(minutes: 30),
+  }) {
+    return signedUrl(filename, expiresIn: expiresIn);
+  }
+
+  /// true when the folder exists. [exists] is true for files only.
+  /// on S3 and memory disks a folder exists when a file is under it.
+  Future<bool> directoryExists(String path) {
+    return use().directoryExists(_key(path));
   }
 
   /// return the file as a stream, from any disk.

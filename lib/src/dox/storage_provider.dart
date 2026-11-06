@@ -24,13 +24,27 @@ class StorageProvider extends DoxProvider {
 
 /// `file.store(folder)` on an uploaded file.
 extension RequestFileStore on RequestFile {
-  /// store the file on the default disk, with a new uuid file name.
-  /// returns its path.
+  /// store the file with a new uuid file name and return its path.
+  /// [disk] picks the disk. without it, the default disk is used.
   /// ```
   /// RequestFile image = req.input('image');
   /// String path = await image.store('images');
+  /// String path = await image.store('images', disk: 's3');
   /// ```
-  Future<String> store(String folder) {
-    return Storage().putRequestFile(folder, this);
+  Future<String> store(String folder, {String? disk}) {
+    return _storage(disk).putRequestFile(folder, this);
+  }
+
+  /// store the file with the given [name] and return its path.
+  /// an old file with the same name is replaced.
+  /// ```
+  /// String path = await image.storeAs('avatars', 'user-1.png');
+  /// ```
+  Future<String> storeAs(String folder, String name, {String? disk}) {
+    return _storage(disk).putRequestFileAs(folder, name, this);
+  }
+
+  Storage _storage(String? disk) {
+    return disk == null ? Storage() : Storage().disk(disk);
   }
 }

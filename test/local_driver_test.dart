@@ -100,6 +100,65 @@ void main() {
       );
     });
 
+    test('makeDirectory in a read-only folder is permission denied', () async {
+      Directory locked = Directory(p.join(dir.path, 'locked'))..createSync();
+      await Process.run('chmod', <String>['555', locked.path]);
+      addTearDown(() => Process.run('chmod', <String>['755', locked.path]));
+      bool canWrite = true;
+      try {
+        Directory(p.join(locked.path, 'probe')).createSync();
+      } on FileSystemException {
+        canWrite = false;
+      }
+      if (canWrite) {
+        markTestSkipped('this user can write a read-only folder, like root');
+        return;
+      }
+      await expectLater(
+        disk.makeDirectory('locked/sub'),
+        throwsA(isA<PermissionDeniedException>()),
+      );
+    }, testOn: '!windows');
+
+    test('directoryExists finds folders, exists finds files only', () async {
+      await disk.put('a/b.txt', 'x');
+      await disk.makeDirectory('empty');
+      expect(await disk.directoryExists('a'), isTrue);
+      expect(await disk.directoryExists('empty'), isTrue);
+      expect(await disk.directoryExists(''), isTrue);
+      expect(await disk.directoryExists('a/b.txt'), isFalse);
+      expect(await disk.directoryExists('none'), isFalse);
+      expect(await disk.exists('a'), isFalse);
+      expect(await disk.exists('empty'), isFalse);
+    });
+
+    test('append uses the visibility and metadata of a subclass', () async {
+      _CountingLocalDriver counting = _CountingLocalDriver(
+        LocalDriverConfig(root: dir.path),
+      );
+      Disk sub = Disk(counting);
+      await sub.put('log.txt', 'one');
+      await sub.append('log.txt', 'two');
+      expect(counting.visibilityReads, 1);
+      expect(counting.metaDataReads, 1);
+      expect(await sub.getString('log.txt'), 'one\ntwo');
+    });
+
+    test('atomicWrites works with a long file name', () async {
+      Disk atomic = Disk(
+        LocalDriver(LocalDriverConfig(root: dir.path, atomicWrites: true)),
+      );
+      String name = '${'n' * 240}.txt';
+      await atomic.put(name, 'long');
+      await atomic.putStream(
+        'dir/$name',
+        Stream<List<int>>.value(utf8.encode('stream')),
+      );
+      expect(File(p.join(dir.path, name)).readAsStringSync(), 'long');
+      expect(File(p.join(dir.path, 'dir', name)).readAsStringSync(), 'stream');
+      expect(dir.listSync().whereType<File>().length, 1);
+    });
+
     test('append on a file with text adds a newline', () async {
       File file = File(p.join(dir.path, 'log.txt'));
       file.writeAsStringSync('one');
@@ -389,3 +448,24 @@ Map<String, String> _oldQuery(String key, FixedClock clock, int minutes) {
 String _name(FileSystemEntity entity) => p.basename(entity.path);
 
 String _key(DriveEntry entry) => entry.key;
+
+/// A LocalDriver with its own visibility and metadata, to check `append`
+/// still reads them.
+class _CountingLocalDriver extends LocalDriver {
+  _CountingLocalDriver(super.config);
+
+  int visibilityReads = 0;
+  int metaDataReads = 0;
+
+  @override
+  Future<Visibility> getVisibility(String key) {
+    visibilityReads++;
+    return super.getVisibility(key);
+  }
+
+  @override
+  Future<ObjectMetaData> getMetaData(String key) {
+    metaDataReads++;
+    return super.getMetaData(key);
+  }
+}

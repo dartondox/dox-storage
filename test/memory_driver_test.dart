@@ -42,6 +42,25 @@ void main() {
       expect(await disk.getVisibility('new.txt'), Visibility.public);
     });
 
+    test('append makes the file when it is deleted after the read', () async {
+      _DeletingDriver driver = _DeletingDriver();
+      Disk disk = Disk(driver);
+      await disk.put('a.txt', 'one');
+      await disk.append('a.txt', 'two');
+      expect(await disk.getString('a.txt'), 'one\ntwo');
+      expect(await disk.getVisibility('a.txt'), Visibility.public);
+    });
+
+    test('directoryExists is true when a file is under the folder', () async {
+      Disk disk = Disk(MemoryDriver());
+      await disk.put('a/b/c.txt', 'x');
+      expect(await disk.directoryExists('a'), isTrue);
+      expect(await disk.directoryExists('a/b'), isTrue);
+      expect(await disk.directoryExists('a/b/c.txt'), isFalse);
+      expect(await disk.directoryExists('b'), isFalse);
+      expect(await disk.exists('a'), isFalse);
+    });
+
     test('visibility is stored per file', () async {
       Disk disk = Disk(MemoryDriver(visibility: Visibility.private));
       await disk.put('a.txt', 'a');
@@ -140,4 +159,14 @@ void main() {
       await expectLater(disk.move('x', 'y'), missing);
     });
   });
+}
+
+/// Deletes the file when `append` reads its metadata, like another writer
+/// that deletes it between the read and the write.
+class _DeletingDriver extends MemoryDriver {
+  @override
+  Future<ObjectMetaData> getMetaData(String key) async {
+    await delete(key);
+    return super.getMetaData(key);
+  }
 }

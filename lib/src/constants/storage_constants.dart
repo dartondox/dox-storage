@@ -46,6 +46,10 @@ class StorageConstants {
   /// renames it, with `atomicWrites` on. Its listings hide these files.
   static const String localTempSuffix = '.dox-upload.tmp';
 
+  /// Most file systems allow at most 255 bytes in one file name. A temp
+  /// name longer than this drops the file name part.
+  static const int localMaxNameBytes = 255;
+
   /// Content type used when nothing better is known.
   static const String defaultContentType = 'application/octet-stream';
 }
