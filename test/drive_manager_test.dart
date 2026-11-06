@@ -52,6 +52,16 @@ void main() {
       expect(await drive.use('s3').exists('f.txt'), isFalse);
     });
 
+    test('assertExists and assertMissing on the fake', () async {
+      Disk fake = drive.fake('s3');
+      await fake.put('a.txt', 'a');
+      await fake.assertExists('a.txt');
+      await fake.assertMissing('b.txt');
+      await expectLater(fake.assertExists('b.txt'), throwsStateError);
+      await expectLater(fake.assertMissing('a.txt'), throwsStateError);
+      drive.restore('s3');
+    });
+
     test('fake without a name fakes the default disk', () async {
       drive.fake();
       await drive.use().put('x.txt', 'x');

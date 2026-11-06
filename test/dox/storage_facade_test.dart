@@ -190,6 +190,24 @@ void main() {
       await Directory('$root/facade-dir').delete(recursive: true);
     });
 
+    test('directoryExists and temporaryUrl', () async {
+      Storage memory = Storage().disk('memory');
+      await memory.append('/dirs/a/b.txt', 'x');
+      expect(await memory.directoryExists('/dirs/a'), isTrue);
+      expect(await memory.exists('/dirs/a'), isFalse);
+      expect(await memory.directoryExists('/dirs/none'), isFalse);
+
+      await Storage().makeDirectory('facade-empty');
+      expect(await Storage().directoryExists('/facade-empty'), isTrue);
+      expect(await Storage().exists('/facade-empty'), isFalse);
+      await Directory('$root/facade-empty').delete();
+
+      String path = await Storage().put('tmp', <int>[1], extension: 'bin');
+      String url = await Storage().temporaryUrl(path);
+      expect(url, startsWith('$baseUrl/files/tmp/'));
+      expect((await http.get(Uri.parse(url))).statusCode, 200);
+    });
+
     test('signed local URL is served, a bad one is 403', () async {
       String path = await Storage().put(
         'secret',

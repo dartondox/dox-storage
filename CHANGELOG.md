@@ -1,5 +1,12 @@
 ## Unreleased
 
+- New: `directoryExists()` is true when a folder exists. On a local disk it checks the real folder. On S3 and memory disks a folder exists when a file is under it. `exists()` does not change: it is still true for files only.
+- New: `temporaryUrl()` on the `Storage` helper. It is the same as `signedUrl()`, with the Laravel name.
+- New: `assertExists()` and `assertMissing()` on a disk, for tests. Use them on a fake: `drive.fake('s3').assertExists('a.png')`. They throw a `StateError` when the check fails.
+- New: `file.store(folder, disk: 's3')` stores an uploaded file on another disk. `file.storeAs(folder, name)` stores it with your own file name. `Storage().putRequestFileAs()` does the same.
+- Fix: with `atomic_writes`, a long file name made the temp name too long, and the write failed with a raw "file name too long" error. A long name is now left out of the temp name. The final file name does not change.
+- Fix: `append()` and `prepend()` threw `FileNotFoundException` when another writer deleted the file between the read and the write. They now make the file again, with the disk defaults.
+- Fix: `append()` and `prepend()` skipped the `getVisibility` and `getMetaData` of a `LocalDriver` subclass. They now call them.
 - New: `append()` and `prepend()` add text to the end or start of a file. A missing file is made. A newline goes between the old and new text, but only when the file is not empty. Change it with `separator`. They keep the visibility and content type of a file that already exists. They read the file and write it back, so two writers at the same time can lose a write.
 - New: `size()` and `lastModified()` give the size and the last modified time of a file. A missing file throws `FileNotFoundException`.
 - New: `makeDirectory()` makes a folder on a local disk. On any disk that is not local (S3, memory, custom drivers) it does nothing, because they have no real folders. A permission error throws `PermissionDeniedException`.

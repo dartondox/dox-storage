@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -241,11 +242,16 @@ class LocalDriver implements DriverContract {
 
   /// A new temp file next to [file], for [LocalDriverConfig.atomicWrites].
   /// Same folder, so the rename in [_replace] does not cross file systems.
+  /// A long file name is left out of the temp name, so the temp name
+  /// still fits the file system limit. The final name does not change.
   File _tempFile(File file) {
-    String name =
-        '.${p.basename(file.path)}.'
+    String unique =
         '${DateTime.now().microsecondsSinceEpoch}-'
         '${_random.nextInt(1 << 32)}${StorageConstants.localTempSuffix}';
+    String name = '.${p.basename(file.path)}.$unique';
+    if (utf8.encode(name).length > StorageConstants.localMaxNameBytes) {
+      name = '.$unique';
+    }
     return File(p.join(file.parent.path, name));
   }
 

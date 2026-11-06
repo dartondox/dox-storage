@@ -267,6 +267,50 @@ void main() {
       expect(request.headers['x-amz-acl'], 'public-read');
     });
 
+    test('append keeps the visibility and content type of the file', () async {
+      s3.reply(200, 'one');
+      s3.reply(200, '''
+<AccessControlPolicy><AccessControlList>
+<Grant><Grantee><URI>http://acs.amazonaws.com/groups/global/AllUsers</URI></Grantee><Permission>READ</Permission></Grant>
+</AccessControlList></AccessControlPolicy>''');
+      s3.reply(200, '', <String, String>{
+        'content-length': '3',
+        'content-type': 'text/x-log',
+        'last-modified': 'Wed, 01 Jan 2025 10:00:00 GMT',
+        'etag': '"abc"',
+      });
+      await diskWith(config()).append('a.log', 'two');
+      http.Request put = s3.requests.last;
+      expect(put.method, 'PUT');
+      expect(put.body, 'one\ntwo');
+      expect(put.headers['x-amz-acl'], 'public-read');
+      expect(put.headers['content-type'], 'text/x-log');
+    });
+
+    test('append makes the file when it is deleted after the read', () async {
+      s3.reply(200, 'one');
+      s3.reply(404, '<Error><Code>NoSuchKey</Code></Error>');
+      await diskWith(config()).append('a.log', 'two');
+      http.Request put = s3.requests.last;
+      expect(put.method, 'PUT');
+      expect(put.body, 'one\ntwo');
+      expect(put.headers['x-amz-acl'], 'private');
+    });
+
+    test('directoryExists lists one key under the folder', () async {
+      s3.reply(
+        200,
+        '''
+<ListBucketResult><Contents><Key>a/b.txt</Key></Contents></ListBucketResult>''',
+      );
+      s3.reply(200, '<ListBucketResult></ListBucketResult>');
+      Disk disk = diskWith(config());
+      expect(await disk.directoryExists('a'), isTrue);
+      expect(s3.requests.first.url.queryParameters['prefix'], 'a/');
+      expect(s3.requests.first.url.queryParameters['max-keys'], '1');
+      expect(await disk.directoryExists('b'), isFalse);
+    });
+
     test('without ACL support visibility makes no requests', () async {
       Disk disk = diskWith(config(supportsAcl: false));
       await disk.setVisibility('a.txt', Visibility.public);
