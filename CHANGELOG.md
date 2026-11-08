@@ -1,4 +1,4 @@
-## Unreleased
+## 3.1.0
 
 - New: `directoryExists()` is true when a folder exists. On a local disk it checks the real folder. On S3 and memory disks a folder exists when a file is under it. `exists()` does not change: it is still true for files only.
 - New: `temporaryUrl()` on the `Storage` helper. It is the same as `signedUrl()`, with the Laravel name.
