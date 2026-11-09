@@ -102,6 +102,9 @@ class Storage {
 
   /// store the request file into storage with the given [name], like
   /// Laravel `putFileAs`. an old file with the same name is replaced.
+  /// do not pass the raw client file name. make your own name, like
+  /// `u1.png`. the returned path is the cleaned key (`a\b.png` gives
+  /// `/a/b.png`), and a name like `../x.png` throws [InvalidKeyException].
   /// ```
   /// String path = await Storage().putRequestFileAs('avatars', 'u1.png', file);
   /// ```
@@ -116,13 +119,14 @@ class Storage {
 
   Future<String> _storeRequestFile(String key, RequestFile requestFile) async {
     Disk target = use();
+    String clean = target.normalizer.key(key);
     DriverContract driver = target.driver;
     if (driver is LocalDriver) {
-      await requestFile.moveTo(driver.pathFor(target.normalizer.key(key)));
+      await requestFile.moveTo(driver.pathFor(clean));
     } else {
-      await target.putStream(key, requestFile.stream());
+      await target.putStream(clean, requestFile.stream());
     }
-    return '/$key';
+    return '/$clean';
   }
 
   /// store bytes with a new uuid file name and return its path.
@@ -232,6 +236,7 @@ class Storage {
 
   /// true when the folder exists. [exists] is true for files only.
   /// on S3 and memory disks a folder exists when a file is under it.
+  /// the root (`''` or `/`) is always true.
   Future<bool> directoryExists(String path) {
     return use().directoryExists(_key(path));
   }

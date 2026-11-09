@@ -309,6 +309,8 @@ void main() {
       expect(s3.requests.first.url.queryParameters['prefix'], 'a/');
       expect(s3.requests.first.url.queryParameters['max-keys'], '1');
       expect(await disk.directoryExists('b'), isFalse);
+      expect(await disk.directoryExists(''), isTrue);
+      expect(s3.requests, hasLength(2), reason: 'the root needs no request');
     });
 
     test('without ACL support visibility makes no requests', () async {

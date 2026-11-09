@@ -223,8 +223,12 @@ class Disk {
   /// True when the folder exists. On a local disk it checks the real
   /// folder. On other disks (S3, memory) a folder exists when at least one
   /// file has a key under it. [exists] stays true for files only.
+  /// The root (an empty path) is always true, on every disk.
   Future<bool> directoryExists(String path) async {
     String p = normalizer.prefix(path);
+    if (p.isEmpty) {
+      return true;
+    }
     DriverContract target = driver;
     try {
       if (target is LocalDriver) {

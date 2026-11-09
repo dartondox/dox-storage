@@ -37,6 +37,8 @@ extension RequestFileStore on RequestFile {
 
   /// store the file with the given [name] and return its path.
   /// an old file with the same name is replaced.
+  /// do not pass the raw client file name. make your own name, like
+  /// `user-1.png`. a name like `../x.png` throws [InvalidKeyException].
   /// ```
   /// String path = await image.storeAs('avatars', 'user-1.png');
   /// ```

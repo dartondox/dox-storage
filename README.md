@@ -91,11 +91,12 @@ Without the provider, `Storage()` has one `local` disk in the `storage` folder.
 
 - Drivers: `LocalDriver`, `S3Driver` (AWS S3, Cloudflare R2, MinIO, DigitalOcean Spaces, GCS with HMAC keys) and `MemoryDriver`.
 - `put`, `putStream`, `get`, `getStream`, `copy`, `move`, `delete`, `listAll`.
-- `append`, `prepend`, `size`, `lastModified`, `makeDirectory` and `directoryExists`. `makeDirectory` does nothing on any disk that is not local (S3, memory, custom drivers), because they have no real folders.
+- `append`, `prepend`, `size`, `lastModified`, `makeDirectory` and `directoryExists`. `makeDirectory` does nothing on any disk that is not local (S3, memory, custom drivers), because they have no real folders. `directoryExists('')` (the root) is always true.
 - Signed download URLs, and signed upload URLs on S3. A local signed URL only works on the route of its own disk.
 - Opt-in atomic local writes (`atomicWrites: true`). A failed upload never leaves a partial file.
 - Big streams go up as a multipart upload. Only one part is in memory at a time.
 - Keys are checked. `..`, absolute paths and null bytes throw `InvalidKeyException`.
+- `file.storeAs(folder, name)` uses your name. Do not pass the raw client file name to `storeAs`. Make your own name, like `user-1.png`.
 - `drive.fake('s3')` swaps a disk for memory in tests. Check it with `assertExists` and `assertMissing`.
 - AWS Signature V4 is written in this package. There is no AWS SDK dependency.
 
