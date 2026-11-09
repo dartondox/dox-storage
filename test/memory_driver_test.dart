@@ -53,6 +53,7 @@ void main() {
 
     test('directoryExists is true when a file is under the folder', () async {
       Disk disk = Disk(MemoryDriver());
+      expect(await disk.directoryExists(''), isTrue, reason: 'root, empty');
       await disk.put('a/b/c.txt', 'x');
       expect(await disk.directoryExists('a'), isTrue);
       expect(await disk.directoryExists('a/b'), isTrue);

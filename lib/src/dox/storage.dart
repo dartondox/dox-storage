@@ -102,6 +102,9 @@ class Storage {
 
   /// store the request file into storage with the given [name], like
   /// Laravel `putFileAs`. an old file with the same name is replaced.
+  /// do not pass the raw client file name. make your own name, like
+  /// `u1.png`. the returned path is the cleaned key (`a\b.png` gives
+  /// `/a/b.png`), and a name like `../x.png` throws [InvalidKeyException].
   /// ```
   /// String path = await Storage().putRequestFileAs('avatars', 'u1.png', file);
   /// ```
@@ -116,13 +119,14 @@ class Storage {
 
   Future<String> _storeRequestFile(String key, RequestFile requestFile) async {
     Disk target = use();
+    String clean = target.normalizer.key(key);
     DriverContract driver = target.driver;
     if (driver is LocalDriver) {
-      await requestFile.moveTo(driver.pathFor(target.normalizer.key(key)));
+      await requestFile.moveTo(driver.pathFor(clean));
     } else {
-      await target.putStream(key, requestFile.stream());
+      await target.putStream(clean, requestFile.stream());
     }
-    return '/$key';
+    return '/$clean';
   }
 
   /// store bytes with a new uuid file name and return its path.
@@ -182,14 +186,27 @@ class Storage {
     return use().makeDirectory(_key(path));
   }
 
-  /// size of a file in bytes. a missing file throws.
+  /// size of a file in bytes. a missing file throws a
+  /// [FileNotFoundException] that Dox answers with 404, like [stream].
   Future<int> size(String filename) {
-    return use().size(_key(filename));
+    return _http404(use().size(_key(filename)));
   }
 
-  /// last modified time of a file. a missing file throws.
+  /// last modified time of a file. a missing file throws a
+  /// [FileNotFoundException] that Dox answers with 404, like [stream].
   Future<DateTime> lastModified(String filename) {
-    return use().lastModified(_key(filename));
+    return _http404(use().lastModified(_key(filename)));
+  }
+
+  Future<T> _http404<T>(Future<T> future) async {
+    try {
+      return await future;
+    } on FileNotFoundException catch (error, stack) {
+      Error.throwWithStackTrace(
+        _FileNotFoundHttpException(error.key, cause: error.cause),
+        stack,
+      );
+    }
   }
 
   /// public URL of a file (needs `url` in the disk config)
@@ -219,6 +236,7 @@ class Storage {
 
   /// true when the folder exists. [exists] is true for files only.
   /// on S3 and memory disks a folder exists when a file is under it.
+  /// the root (`''` or `/`) is always true.
   Future<bool> directoryExists(String path) {
     return use().directoryExists(_key(path));
   }
@@ -302,5 +320,27 @@ class Storage {
       if (head.length >= defaultMagicNumbersMaxLength) break;
     }
     return lookupMimeType('', headerBytes: head)?.split('/').last;
+  }
+}
+
+/// A [FileNotFoundException] that Dox answers with 404, not 500.
+/// `on FileNotFoundException` still catches it.
+class _FileNotFoundHttpException extends FileNotFoundException
+    implements IHttpException {
+  _FileNotFoundHttpException(super.key, {super.cause});
+
+  @override
+  int code = HttpStatus.notFound;
+
+  @override
+  String errorCode = 'not_found';
+
+  // ponytail: the message is fixed, like the one of [Storage.stream].
+  @override
+  set message(dynamic value) {}
+
+  @override
+  dynamic toResponse() {
+    return <String, dynamic>{'code': errorCode, 'message': 'file not found'};
   }
 }

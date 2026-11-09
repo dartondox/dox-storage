@@ -1,3 +1,10 @@
+## Unreleased
+
+- Fix: `Storage().size()` and `Storage().lastModified()` of a missing file made Dox answer 500. They now answer 404, like `Storage().stream()`. The error is still a `FileNotFoundException`, so `on FileNotFoundException` keeps working.
+- Fix: `storeAs()` and `putRequestFileAs()` returned the raw name, not the stored key. A name like `a\b.png` is stored as `a/b.png`, and now the returned path is `/a/b.png` too.
+- Fix: `directoryExists('')` was true on a local disk, but false on an empty S3 or memory disk. The root is now always true, on every disk.
+- Docs: do not pass the raw client file name to `storeAs()`. Make your own name.
+
 ## 3.1.0
 
 - New: `directoryExists()` is true when a folder exists. On a local disk it checks the real folder. On S3 and memory disks a folder exists when a file is under it. `exists()` does not change: it is still true for files only.

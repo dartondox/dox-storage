@@ -23,6 +23,12 @@ class FileRouter extends Router {
     Route.get('/download', (DoxRequest req) {
       return Storage().download(req.input('key') as String);
     });
+    Route.get('/size', (DoxRequest req) async {
+      return await Storage().size(req.input('key') as String);
+    });
+    Route.get('/modified', (DoxRequest req) async {
+      return await Storage().lastModified(req.input('key') as String);
+    });
     Route.get('/memory', (DoxRequest req) {
       return Storage().disk('memory').stream(req.input('key') as String);
     });
@@ -103,6 +109,23 @@ void main() {
         Uri.parse('$baseUrl/download?key=/nope/missing.png'),
       );
       expect(res.statusCode, 404);
+    });
+
+    test('size and lastModified of a missing file are 404', () async {
+      for (String path in <String>['size', 'modified']) {
+        http.Response res = await http.get(
+          Uri.parse('$baseUrl/$path?key=/nope/missing.png'),
+        );
+        expect(res.statusCode, 404, reason: path);
+        expect(jsonDecode(res.body), <String, dynamic>{
+          'code': 'not_found',
+          'message': 'file not found',
+        });
+      }
+      await expectLater(
+        Storage().size('nope/missing.png'),
+        throwsA(isA<FileNotFoundException>()),
+      );
     });
 
     test('a key outside the disk is 404, not 500', () async {

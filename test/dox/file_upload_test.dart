@@ -150,6 +150,18 @@ void main() {
         RequestFile file = req.input('image') as RequestFile;
         return await file.storeAs('avatars', 'user-1.png', disk: 'uploads');
       });
+      Route.post('/image/store-as-backslash', (DoxRequest req) async {
+        RequestFile file = req.input('image') as RequestFile;
+        return await file.storeAs('a', r'b\c.png', disk: 'uploads');
+      });
+      Route.post('/image/store-as-evil', (DoxRequest req) async {
+        RequestFile file = req.input('image') as RequestFile;
+        try {
+          return await file.storeAs('x', '../evil.png', disk: 'uploads');
+        } on InvalidKeyException {
+          return 'invalid key';
+        }
+      });
       Route.post('/image/store-as-local', (DoxRequest req) async {
         RequestFile file = req.input('image') as RequestFile;
         return await file.storeAs('images', 'named.png');
@@ -164,6 +176,13 @@ void main() {
       url = await uploadImage('$baseUrl/image/store-as', imageFile);
       expect(url, '/avatars/user-1.png');
       expect(await fake.get('avatars/user-1.png'), imageFile.readAsBytesSync());
+
+      url = await uploadImage('$baseUrl/image/store-as-backslash', imageFile);
+      expect(url, '/a/b/c.png', reason: 'the cleaned key, not the raw name');
+      await fake.assertExists('a/b/c.png');
+
+      url = await uploadImage('$baseUrl/image/store-as-evil', imageFile);
+      expect(url, 'invalid key');
 
       url = await uploadImage('$baseUrl/image/store-as-local', imageFile);
       expect(url, '/images/named.png');
