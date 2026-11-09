@@ -182,14 +182,27 @@ class Storage {
     return use().makeDirectory(_key(path));
   }
 
-  /// size of a file in bytes. a missing file throws.
+  /// size of a file in bytes. a missing file throws a
+  /// [FileNotFoundException] that Dox answers with 404, like [stream].
   Future<int> size(String filename) {
-    return use().size(_key(filename));
+    return _http404(use().size(_key(filename)));
   }
 
-  /// last modified time of a file. a missing file throws.
+  /// last modified time of a file. a missing file throws a
+  /// [FileNotFoundException] that Dox answers with 404, like [stream].
   Future<DateTime> lastModified(String filename) {
-    return use().lastModified(_key(filename));
+    return _http404(use().lastModified(_key(filename)));
+  }
+
+  Future<T> _http404<T>(Future<T> future) async {
+    try {
+      return await future;
+    } on FileNotFoundException catch (error, stack) {
+      Error.throwWithStackTrace(
+        _FileNotFoundHttpException(error.key, cause: error.cause),
+        stack,
+      );
+    }
   }
 
   /// public URL of a file (needs `url` in the disk config)
@@ -302,5 +315,27 @@ class Storage {
       if (head.length >= defaultMagicNumbersMaxLength) break;
     }
     return lookupMimeType('', headerBytes: head)?.split('/').last;
+  }
+}
+
+/// A [FileNotFoundException] that Dox answers with 404, not 500.
+/// `on FileNotFoundException` still catches it.
+class _FileNotFoundHttpException extends FileNotFoundException
+    implements IHttpException {
+  _FileNotFoundHttpException(super.key, {super.cause});
+
+  @override
+  int code = HttpStatus.notFound;
+
+  @override
+  String errorCode = 'not_found';
+
+  // ponytail: the message is fixed, like the one of [Storage.stream].
+  @override
+  set message(dynamic value) {}
+
+  @override
+  dynamic toResponse() {
+    return <String, dynamic>{'code': errorCode, 'message': 'file not found'};
   }
 }
