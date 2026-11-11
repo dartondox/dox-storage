@@ -80,7 +80,7 @@ void main() async {
    ```dart
    RequestFile file = req.input('avatar');
    String path = await Storage().putFile('avatars', file); // new uuid name
-   await Storage().put('notes/a.txt', 'hello'); // this exact path
+   await Storage().put('notes/a.txt', 'hello', exact: true); // this exact path
    return Storage().download(path, name: 'avatar.png');
    ```
 
@@ -93,7 +93,7 @@ Without the provider, `Storage()` has one `local` disk in the `storage` folder.
 - Drivers: `LocalDriver`, `S3Driver` (AWS S3, Cloudflare R2, MinIO, DigitalOcean Spaces, GCS with HMAC keys) and `MemoryDriver`.
 - `put`, `putStream`, `get`, `getStream`, `copy`, `move`, `delete`, `listAll`.
 - `files`, `allFiles`, `directories`, `deleteDirectory` and `missing`, like Laravel. `deleteDirectory` refuses the root (`''` or `/`), so a bad path can not empty a disk.
-- `Storage().put(path, contents)` writes to that exact path. `putFile(folder, file)` stores with a new uuid file name, and `putFileAs(folder, file, name)` with your name.
+- `Storage().put(folder, bytes)` and `putFile(folder, file)` store with a new uuid file name. `Storage().put(path, contents, exact: true)` writes to that exact path. `putFileAs(folder, file, name)` stores with your name.
 - `append`, `prepend`, `size`, `lastModified`, `makeDirectory` and `directoryExists`. `makeDirectory` does nothing on any disk that is not local (S3, memory, custom drivers), because they have no real folders. `directoryExists('')` (the root) is always true.
 - Signed download URLs, and signed upload URLs on S3. A local signed URL only works on the route of its own disk.
 - Opt-in atomic local writes (`atomicWrites: true`). A failed upload never leaves a partial file.

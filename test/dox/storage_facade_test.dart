@@ -106,25 +106,73 @@ void main() {
       expect(await Storage().get(path), isNull);
     });
 
-    test('put writes to the exact path', () async {
+    test('put stores in a folder with a new uuid file name', () async {
+      String path = await Storage().put('images', <int>[
+        1,
+        2,
+        3,
+      ], extension: 'bin');
+      expect(path, matches(RegExp(r'^/images/[0-9a-f-]+\.bin$')));
+      expect(await Storage().get(path), <int>[1, 2, 3]);
+      expect(File('$root$path').existsSync(), isTrue);
+      await Storage().delete(path);
+      await expectLater(
+        Storage().put('images', 'text'),
+        throwsA(
+          isA<ArgumentError>()
+              .having((ArgumentError e) => e.name, 'name', 'contents')
+              .having(
+                (ArgumentError e) => '${e.message}',
+                'message',
+                contains('exact: true'),
+              ),
+        ),
+      );
+
+      // odd folders give the same path as in 3.1.0
+      String slashes = await Storage().put('/x/', <int>[1], extension: 'png');
+      expect(slashes, matches(RegExp(r'^/x//[0-9a-f-]+\.png$')));
+      expect(await Storage().get(slashes), <int>[1]);
+      await Storage().delete(slashes);
+      String top = await Storage().put('', <int>[2], extension: 'png');
+      expect(top, matches(RegExp(r'^/[0-9a-f-]+\.png$')));
+      expect(await Storage().get(top), <int>[2]);
+      await Storage().delete(top);
+    });
+
+    test('put with exact: true writes to the exact path', () async {
       for (String name in <String>['local', 'memory']) {
         Storage disk = Storage().disk(name);
-        await disk.put('exact/a.txt', 'text');
-        await disk.put('/exact/b.bin', <int>[1, 2]);
+        expect(
+          await disk.put('exact/a.txt', 'text', exact: true),
+          '/exact/a.txt',
+        );
+        expect(
+          await disk.put('/exact/b.bin', <int>[1, 2], exact: true),
+          '/exact/b.bin',
+        );
         await disk.put(
           'exact/c.txt',
           Stream<List<int>>.value(utf8.encode('stream')),
+          exact: true,
         );
         expect(utf8.decode((await disk.get('exact/a.txt'))!), 'text');
         expect(await disk.get('exact/b.bin'), <int>[1, 2]);
         expect(utf8.decode((await disk.get('exact/c.txt'))!), 'stream');
-        await disk.put('exact/a.txt', 'new');
+        await disk.put('exact/a.txt', 'new', exact: true);
         expect(utf8.decode((await disk.get('exact/a.txt'))!), 'new');
         await expectLater(
-          disk.put('../escape.txt', 'x'),
+          disk.put('../escape.txt', 'x', exact: true),
           throwsA(isA<InvalidKeyException>()),
         );
-        await expectLater(disk.put('exact/d.txt', 42), throwsArgumentError);
+        await expectLater(
+          disk.put('exact/d.txt', 42, exact: true),
+          throwsArgumentError,
+        );
+        await expectLater(
+          disk.put('exact/e.txt', 'x', extension: 'txt', exact: true),
+          throwsArgumentError,
+        );
         await disk.deleteDirectory('exact');
       }
       expect(File('$root/../escape.txt').existsSync(), isFalse);
@@ -148,9 +196,9 @@ void main() {
     test('copy, move, missing, files, allFiles, directories', () async {
       for (String name in <String>['local', 'memory']) {
         Storage disk = Storage().disk(name);
-        await disk.put('list/a.txt', 'a');
-        await disk.put('list/sub/b.txt', 'b');
-        await disk.put('list/sub/deep/c.txt', 'c');
+        await disk.put('list/a.txt', 'a', exact: true);
+        await disk.put('list/sub/b.txt', 'b', exact: true);
+        await disk.put('list/sub/deep/c.txt', 'c', exact: true);
 
         expect(await disk.files('list'), <String>['/list/a.txt'], reason: name);
         expect(await disk.allFiles('/list'), <String>[
@@ -205,7 +253,7 @@ void main() {
     });
 
     test('deleteDirectory of the root throws and keeps the files', () async {
-      await Storage().put('keep/a.txt', 'a');
+      await Storage().put('keep/a.txt', 'a', exact: true);
       await expectLater(
         Storage().deleteDirectory('/'),
         throwsA(isA<InvalidKeyException>()),
@@ -253,7 +301,7 @@ void main() {
 
     test('getVisibility and setVisibility', () async {
       Storage memory = Storage().disk('memory');
-      await memory.put('vis/a.txt', 'a');
+      await memory.put('vis/a.txt', 'a', exact: true);
       expect(await memory.getVisibility('vis/a.txt'), Visibility.public);
       await memory.setVisibility('/vis/a.txt', Visibility.private);
       expect(await memory.getVisibility('vis/a.txt'), Visibility.private);
@@ -263,7 +311,7 @@ void main() {
       );
 
       // a local disk without `permissions` keeps the old behavior
-      await Storage().put('vis/a.txt', 'a');
+      await Storage().put('vis/a.txt', 'a', exact: true);
       await Storage().setVisibility('vis/a.txt', Visibility.private);
       expect(await Storage().getVisibility('vis/a.txt'), Visibility.public);
       await Storage().deleteDirectory('vis');
@@ -271,7 +319,7 @@ void main() {
     });
 
     test('download with a file name, safe header', () async {
-      await Storage().put('dl/a.txt', 'a');
+      await Storage().put('dl/a.txt', 'a', exact: true);
       Map<String, String> names = <String, String>{
         'Invoice 42.txt': 'attachment; filename="Invoice 42.txt"',
         'a"b.txt': r'attachment; filename="a\"b.txt"',

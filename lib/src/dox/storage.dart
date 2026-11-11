@@ -19,8 +19,8 @@ import 'storage_file_controller.dart';
 /// `local` disk in the `storage` folder. Files are read as streams, so a
 /// big file is never loaded into memory to send it.
 /// ```
-/// await Storage().put('notes/a.txt', 'hello');
-/// String path = await Storage().putFile('avatars', file);
+/// String path = await Storage().put('images', bytes, extension: 'png');
+/// await Storage().put('notes/a.txt', 'hello', exact: true);
 /// return Storage().disk('s3').download(path);
 /// Disk s3 = Storage().use('s3'); // full dox_storage API
 /// ```
@@ -131,21 +131,53 @@ class Storage {
     return '/$clean';
   }
 
-  /// write [contents] to exactly [path], like Laravel `Storage::put`.
-  /// an old file at [path] is replaced. [contents] can be a `String`
-  /// (saved as UTF-8), a `List<int>` or a `Stream<List<int>>`.
-  /// to store with a new uuid file name, use [putFile].
+  /// store a file in [path] (a folder) with a new uuid file name and
+  /// return its path. this is the same as [putFile]. [contents] is the
+  /// bytes (`List<int>`) or a [RequestFile]. the extension is [extension],
+  /// or it is guessed from the bytes.
+  ///
+  /// with `exact: true`, [contents] is written to exactly [path], like
+  /// Laravel `Storage::put`. an old file at [path] is replaced. [contents]
+  /// can be a `String` (saved as UTF-8), a `List<int>` or a
+  /// `Stream<List<int>>`. the returned path is the cleaned key. do not
+  /// pass [extension] with `exact: true`.
   /// ```
-  /// await Storage().put('reports/2026-11.csv', csv);
-  /// await Storage().put('images/logo.png', bytes);
+  /// String path = await Storage().put('images', bytes, extension: 'png');
+  /// await Storage().put('reports/2026-11.csv', csv, exact: true);
   /// ```
-  Future<void> put(String path, Object contents) {
-    return use().put(_key(path), contents);
+  Future<String> put(
+    String path,
+    Object contents, {
+    String? extension,
+    bool exact = false,
+  }) async {
+    if (!exact) {
+      if (contents is! RequestFile && contents is! List<int>) {
+        throw ArgumentError.value(
+          contents,
+          'contents',
+          'put stores a RequestFile or List<int> with a new uuid name. '
+              'To write a String or a Stream to a path, pass exact: true',
+        );
+      }
+      return putFile(path, contents, extension: extension);
+    }
+    if (extension != null) {
+      throw ArgumentError.value(
+        extension,
+        'extension',
+        'is not used with exact: true',
+      );
+    }
+    Disk target = use();
+    String clean = target.normalizer.key(_key(path));
+    await target.put(clean, contents);
+    return '/$clean';
   }
 
   /// store a file in [folder] with a new uuid file name and return its
   /// path, like Laravel `putFile`. [file] is a [RequestFile] or the bytes
-  /// (`List<int>`).
+  /// (`List<int>`). [put] without `exact: true` does the same.
   ///
   /// for bytes, the extension is [extension], or it is guessed from the
   /// bytes. for a [RequestFile], see [putRequestFile]; [extension] is not
@@ -177,7 +209,7 @@ class Storage {
 
   /// store a file in [folder] with the given [name] and return its path,
   /// like Laravel `putFileAs`. an old file with the same name is replaced.
-  /// [file] is a [RequestFile], or anything [put] takes.
+  /// [file] is a [RequestFile], or anything `put(exact: true)` takes.
   ///
   /// do not pass the raw client file name. make your own name, like
   /// `u1.png`. the returned path is the cleaned key (`a\b.png` gives
