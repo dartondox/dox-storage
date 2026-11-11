@@ -116,7 +116,28 @@ void main() {
       expect(await Storage().get(path), <int>[1, 2, 3]);
       expect(File('$root$path').existsSync(), isTrue);
       await Storage().delete(path);
-      await expectLater(Storage().put('images', 'text'), throwsArgumentError);
+      await expectLater(
+        Storage().put('images', 'text'),
+        throwsA(
+          isA<ArgumentError>()
+              .having((ArgumentError e) => e.name, 'name', 'contents')
+              .having(
+                (ArgumentError e) => '${e.message}',
+                'message',
+                contains('exact: true'),
+              ),
+        ),
+      );
+
+      // odd folders give the same path as in 3.1.0
+      String slashes = await Storage().put('/x/', <int>[1], extension: 'png');
+      expect(slashes, matches(RegExp(r'^/x//[0-9a-f-]+\.png$')));
+      expect(await Storage().get(slashes), <int>[1]);
+      await Storage().delete(slashes);
+      String top = await Storage().put('', <int>[2], extension: 'png');
+      expect(top, matches(RegExp(r'^/[0-9a-f-]+\.png$')));
+      expect(await Storage().get(top), <int>[2]);
+      await Storage().delete(top);
     });
 
     test('put with exact: true writes to the exact path', () async {

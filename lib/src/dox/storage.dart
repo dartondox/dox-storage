@@ -152,6 +152,14 @@ class Storage {
     bool exact = false,
   }) async {
     if (!exact) {
+      if (contents is! RequestFile && contents is! List<int>) {
+        throw ArgumentError.value(
+          contents,
+          'contents',
+          'put stores a RequestFile or List<int> with a new uuid name. '
+              'To write a String or a Stream to a path, pass exact: true',
+        );
+      }
       return putFile(path, contents, extension: extension);
     }
     if (extension != null) {
