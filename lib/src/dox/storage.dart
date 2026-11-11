@@ -19,7 +19,8 @@ import 'storage_file_controller.dart';
 /// `local` disk in the `storage` folder. Files are read as streams, so a
 /// big file is never loaded into memory to send it.
 /// ```
-/// String path = await Storage().put('images', bytes, extension: 'png');
+/// await Storage().put('notes/a.txt', 'hello');
+/// String path = await Storage().putFile('avatars', file);
 /// return Storage().disk('s3').download(path);
 /// Disk s3 = Storage().use('s3'); // full dox_storage API
 /// ```
@@ -113,8 +114,7 @@ class Storage {
     String name,
     RequestFile requestFile,
   ) {
-    String dir = _key(folder);
-    return _storeRequestFile(dir.isEmpty ? name : '$dir/$name', requestFile);
+    return _storeRequestFile(_join(folder, name), requestFile);
   }
 
   Future<String> _storeRequestFile(String key, RequestFile requestFile) async {
@@ -123,26 +123,77 @@ class Storage {
     DriverContract driver = target.driver;
     if (driver is LocalDriver) {
       await requestFile.moveTo(driver.pathFor(clean));
+      if (driver.config.permissions != null) {
+        await target.setVisibility(clean, driver.config.visibility);
+      }
     } else {
       await target.putStream(clean, requestFile.stream());
     }
     return '/$clean';
   }
 
-  /// store bytes with a new uuid file name and return its path.
-  /// the extension is guessed from the bytes when not given.
+  /// write [contents] to exactly [path], like Laravel `Storage::put`.
+  /// an old file at [path] is replaced. [contents] can be a `String`
+  /// (saved as UTF-8), a `List<int>` or a `Stream<List<int>>`.
+  /// to store with a new uuid file name, use [putFile].
   /// ```
-  /// String path = await Storage().put('images', bytes, extension: 'png');
+  /// await Storage().put('reports/2026-11.csv', csv);
+  /// await Storage().put('images/logo.png', bytes);
   /// ```
-  Future<String> put(
+  Future<void> put(String path, Object contents) {
+    return use().put(_key(path), contents);
+  }
+
+  /// store a file in [folder] with a new uuid file name and return its
+  /// path, like Laravel `putFile`. [file] is a [RequestFile] or the bytes
+  /// (`List<int>`).
+  ///
+  /// for bytes, the extension is [extension], or it is guessed from the
+  /// bytes. for a [RequestFile], see [putRequestFile]; [extension] is not
+  /// used.
+  /// ```
+  /// String path = await Storage().putFile('avatars', file);
+  /// String path = await Storage().putFile('images', bytes, extension: 'png');
+  /// ```
+  Future<String> putFile(
     String folder,
-    List<int> bytes, {
+    Object file, {
     String? extension,
   }) async {
-    extension ??= lookupMimeType('', headerBytes: bytes)?.split('/').last;
+    if (file is RequestFile) {
+      return putRequestFile(folder, file);
+    }
+    if (file is! List<int>) {
+      throw ArgumentError.value(
+        file,
+        'file',
+        'must be a RequestFile or List<int>',
+      );
+    }
+    extension ??= lookupMimeType('', headerBytes: file)?.split('/').last;
     String key = _newKey(folder, extension);
-    await use().put(key, bytes);
+    await use().put(key, file);
     return '/$key';
+  }
+
+  /// store a file in [folder] with the given [name] and return its path,
+  /// like Laravel `putFileAs`. an old file with the same name is replaced.
+  /// [file] is a [RequestFile], or anything [put] takes.
+  ///
+  /// do not pass the raw client file name. make your own name, like
+  /// `u1.png`. the returned path is the cleaned key (`a\b.png` gives
+  /// `/a/b.png`), and a name like `../x.png` throws [InvalidKeyException].
+  /// ```
+  /// String path = await Storage().putFileAs('avatars', file, 'u1.png');
+  /// ```
+  Future<String> putFileAs(String folder, Object file, String name) async {
+    if (file is RequestFile) {
+      return putRequestFileAs(folder, name, file);
+    }
+    Disk target = use();
+    String clean = target.normalizer.key(_join(folder, name));
+    await target.put(clean, file);
+    return '/$clean';
   }
 
   /// get stored file as bytes, or null when it does not exist.
@@ -163,6 +214,85 @@ class Storage {
   /// delete file from storage. a missing file is not an error.
   Future<void> delete(String filename) {
     return use().delete(_key(filename));
+  }
+
+  /// true when the file does not exist. the opposite of [exists].
+  Future<bool> missing(String filename) {
+    return use().missing(_key(filename));
+  }
+
+  /// copy a file to [to]. an old file at [to] is replaced. on S3 the copy
+  /// is done by S3, the bytes do not pass through the app. a missing file
+  /// throws a [FileNotFoundException] that Dox answers with 404.
+  /// ```
+  /// await Storage().copy('avatars/a.png', 'backup/a.png');
+  /// ```
+  Future<void> copy(String from, String to) {
+    return _http404(use().copy(_key(from), _key(to)));
+  }
+
+  /// move a file to [to]. an old file at [to] is replaced. a missing file
+  /// throws a [FileNotFoundException] that Dox answers with 404.
+  /// ```
+  /// await Storage().move('tmp/a.png', 'avatars/a.png');
+  /// ```
+  Future<void> move(String from, String to) {
+    return _http404(use().move(_key(from), _key(to)));
+  }
+
+  /// paths of the files directly in [folder], like Laravel `files`.
+  /// files in sub-folders are not in the list; see [allFiles].
+  /// each path starts with `/`, like the path of [putFile].
+  /// ```
+  /// List<String> paths = await Storage().files('avatars');
+  /// ```
+  Future<List<String>> files([String folder = '']) async {
+    return _paths(await use().files(_key(folder)));
+  }
+
+  /// paths of every file under [folder], in all sub-folders too.
+  Future<List<String>> allFiles([String folder = '']) async {
+    return _paths(await use().allFiles(_key(folder)));
+  }
+
+  /// paths of the folders directly in [folder], like Laravel
+  /// `directories`. on S3 and memory disks a folder is there when a file
+  /// is under it.
+  Future<List<String>> directories([String folder = '']) async {
+    return _paths(await use().directories(_key(folder)));
+  }
+
+  /// delete a folder and every file in it. a missing folder is not an
+  /// error. the root (`''` or `/`) throws [InvalidKeyException], so a bad
+  /// path can not empty the disk. use `Storage().use().deleteAll()` for
+  /// that.
+  Future<void> deleteDirectory(String folder) {
+    return use().deleteDirectory(_key(folder));
+  }
+
+  /// visibility of a file: [Visibility.public] or [Visibility.private].
+  /// on a local disk it is the disk `visibility` option, unless the disk
+  /// has the `permissions` option.
+  Future<Visibility> getVisibility(String filename) {
+    return _http404(use().getVisibility(_key(filename)));
+  }
+
+  /// change the visibility of a file. on S3 it sets the ACL. on a local
+  /// disk it does nothing, unless the disk has the `permissions` option:
+  /// then it changes the file mode.
+  /// ```
+  /// await Storage().setVisibility('avatars/a.png', Visibility.private);
+  /// ```
+  Future<void> setVisibility(String filename, Visibility visibility) {
+    return _http404(use().setVisibility(_key(filename), visibility));
+  }
+
+  List<String> _paths(List<String> keys) {
+    List<String> paths = <String>[];
+    for (String key in keys) {
+      paths.add('/$key');
+    }
+    return paths;
   }
 
   /// add text to the end of a file. a missing file is made.
@@ -268,15 +398,25 @@ class Storage {
   }
 
   /// return the file as a download (Content-Disposition: attachment).
+  /// [name] is the file name the browser saves, like Laravel
+  /// `download($path, $name)`. without it, the last part of the path is
+  /// used. any name is safe: quotes are escaped, control characters
+  /// (like a new line) become `_`, and a non-ASCII name is also sent as
+  /// `filename*=UTF-8''...`.
   /// ```
-  /// return await Storage().download('images/avatar/sample.jpeg');
+  /// return await Storage().download('invoices/42.pdf', name: 'Invoice 42.pdf');
   /// ```
-  Future<DownloadableFile> download(String filename) async {
+  /// to add headers, wrap it in a response:
+  /// ```
+  /// return response(await Storage().download('a.pdf'))
+  ///     .header('Cache-Control', 'no-store');
+  /// ```
+  Future<DownloadableFile> download(String filename, {String? name}) async {
     StreamFile file = await stream(filename);
     return DownloadableFile(
       file.contentType,
       file.stream,
-      filename.split('/').last,
+      name ?? filename.split('/').last,
       length: file.length,
     );
   }
@@ -292,8 +432,11 @@ class Storage {
 
   String _newKey(String folder, String? extension) {
     if (extension == null) throw ArgumentError('invalid file');
+    return _join(folder, '${uuid.v4()}.$extension');
+  }
+
+  String _join(String folder, String name) {
     String dir = _key(folder);
-    String name = '${uuid.v4()}.$extension';
     return dir.isEmpty ? name : '$dir/$name';
   }
 

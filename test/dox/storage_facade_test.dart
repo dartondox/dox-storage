@@ -29,6 +29,22 @@ class FileRouter extends Router {
     Route.get('/modified', (DoxRequest req) async {
       return await Storage().lastModified(req.input('key') as String);
     });
+    Route.get('/download-as', (DoxRequest req) {
+      return Storage().download(
+        req.input('key') as String,
+        name: req.input('name') as String,
+      );
+    });
+    Route.get('/download-headers', (DoxRequest req) async {
+      DownloadableFile file = await Storage().download(
+        req.input('key') as String,
+        name: 'report.txt',
+      );
+      return response(file).header('Cache-Control', 'no-store');
+    });
+    Route.get('/copy-missing', (DoxRequest req) {
+      return Storage().copy('nope/missing.txt', 'nope/b.txt');
+    });
     Route.get('/memory', (DoxRequest req) {
       return Storage().disk('memory').stream(req.input('key') as String);
     });
@@ -73,8 +89,8 @@ void main() {
   });
 
   group('Storage facade |', () {
-    test('put keeps the uuid file name and the old path shape', () async {
-      String path = await Storage().put('images', <int>[
+    test('putFile keeps the uuid file name and the old path shape', () async {
+      String path = await Storage().putFile('images', <int>[
         1,
         2,
         3,
@@ -89,9 +105,169 @@ void main() {
       expect(await Storage().get(path), isNull);
     });
 
+    test('put writes to the exact path', () async {
+      for (String name in <String>['local', 'memory']) {
+        Storage disk = Storage().disk(name);
+        await disk.put('exact/a.txt', 'text');
+        await disk.put('/exact/b.bin', <int>[1, 2]);
+        await disk.put(
+          'exact/c.txt',
+          Stream<List<int>>.value(utf8.encode('stream')),
+        );
+        expect(utf8.decode((await disk.get('exact/a.txt'))!), 'text');
+        expect(await disk.get('exact/b.bin'), <int>[1, 2]);
+        expect(utf8.decode((await disk.get('exact/c.txt'))!), 'stream');
+        await disk.put('exact/a.txt', 'new');
+        expect(utf8.decode((await disk.get('exact/a.txt'))!), 'new');
+        await expectLater(
+          disk.put('../escape.txt', 'x'),
+          throwsA(isA<InvalidKeyException>()),
+        );
+        await expectLater(disk.put('exact/d.txt', 42), throwsArgumentError);
+        await disk.deleteDirectory('exact');
+      }
+      expect(File('$root/../escape.txt').existsSync(), isFalse);
+    });
+
+    test('putFileAs with bytes or text, putFile with a wrong type', () async {
+      Storage memory = Storage().disk('memory');
+      expect(await memory.putFileAs('as', <int>[7], 'a.bin'), '/as/a.bin');
+      expect(await memory.putFileAs('/', 'hi', 'b.txt'), '/b.txt');
+      expect(await memory.get('as/a.bin'), <int>[7]);
+      expect(utf8.decode((await memory.get('b.txt'))!), 'hi');
+      await expectLater(
+        memory.putFileAs('as', 'x', '../c.txt'),
+        throwsA(isA<InvalidKeyException>()),
+      );
+      await expectLater(memory.putFile('as', 'text'), throwsArgumentError);
+      await memory.delete('b.txt');
+      await memory.deleteDirectory('as');
+    });
+
+    test('copy, move, missing, files, allFiles, directories', () async {
+      for (String name in <String>['local', 'memory']) {
+        Storage disk = Storage().disk(name);
+        await disk.put('list/a.txt', 'a');
+        await disk.put('list/sub/b.txt', 'b');
+        await disk.put('list/sub/deep/c.txt', 'c');
+
+        expect(await disk.files('list'), <String>['/list/a.txt'], reason: name);
+        expect(await disk.allFiles('/list'), <String>[
+          '/list/a.txt',
+          '/list/sub/b.txt',
+          '/list/sub/deep/c.txt',
+        ], reason: name);
+        expect(await disk.directories('list'), <String>['/list/sub']);
+        expect(await disk.directories('list/sub'), <String>['/list/sub/deep']);
+        expect(await disk.files('list/none'), isEmpty);
+
+        await disk.copy('/list/a.txt', 'list/copy/a.txt');
+        expect(await disk.missing('list/a.txt'), isFalse);
+        expect(utf8.decode((await disk.get('list/copy/a.txt'))!), 'a');
+
+        await disk.move('list/a.txt', 'list/moved/a.txt');
+        expect(await disk.missing('list/a.txt'), isTrue);
+        expect(utf8.decode((await disk.get('list/moved/a.txt'))!), 'a');
+
+        await expectLater(
+          disk.copy('list/sub/b.txt', '../b.txt'),
+          throwsA(isA<InvalidKeyException>()),
+        );
+        await expectLater(
+          disk.move('../pubspec.yaml', 'list/p.yaml'),
+          throwsA(isA<InvalidKeyException>()),
+        );
+        await expectLater(
+          disk.copy('list/nope.txt', 'list/b.txt'),
+          throwsA(isA<FileNotFoundException>()),
+        );
+
+        await disk.deleteDirectory('list/sub');
+        expect(await disk.allFiles('list'), <String>[
+          '/list/copy/a.txt',
+          '/list/moved/a.txt',
+        ]);
+        await disk.deleteDirectory('list/none'); // a missing folder is fine
+        for (String bad in <String>['', '/', '.', '../list']) {
+          await expectLater(
+            disk.deleteDirectory(bad),
+            throwsA(isA<InvalidKeyException>()),
+            reason: bad,
+          );
+        }
+        expect(await disk.exists('list/copy/a.txt'), isTrue);
+        await disk.deleteDirectory('list');
+        expect(await disk.allFiles('list'), isEmpty);
+      }
+      expect(Directory('$root/list').existsSync(), isFalse);
+      expect(File('pubspec.yaml').existsSync(), isTrue);
+    });
+
+    test('a missing file in copy is 404', () async {
+      http.Response res = await http.get(Uri.parse('$baseUrl/copy-missing'));
+      expect(res.statusCode, 404);
+    });
+
+    test('getVisibility and setVisibility', () async {
+      Storage memory = Storage().disk('memory');
+      await memory.put('vis/a.txt', 'a');
+      expect(await memory.getVisibility('vis/a.txt'), Visibility.public);
+      await memory.setVisibility('/vis/a.txt', Visibility.private);
+      expect(await memory.getVisibility('vis/a.txt'), Visibility.private);
+      await expectLater(
+        memory.getVisibility('vis/none.txt'),
+        throwsA(isA<FileNotFoundException>()),
+      );
+
+      // a local disk without `permissions` keeps the old behavior
+      await Storage().put('vis/a.txt', 'a');
+      await Storage().setVisibility('vis/a.txt', Visibility.private);
+      expect(await Storage().getVisibility('vis/a.txt'), Visibility.public);
+      await Storage().deleteDirectory('vis');
+      await memory.deleteDirectory('vis');
+    });
+
+    test('download with a file name, safe header', () async {
+      await Storage().put('dl/a.txt', 'a');
+      Map<String, String> names = <String, String>{
+        'Invoice 42.txt': 'attachment; filename="Invoice 42.txt"',
+        'a"b.txt': r'attachment; filename="a\"b.txt"',
+        'a\r\nSet-Cookie: x=1.txt':
+            'attachment; filename="a__Set-Cookie: x=1.txt"',
+        'résumé.txt':
+            'attachment; filename="r_sum_.txt"; '
+            "filename*=UTF-8''r%C3%A9sum%C3%A9.txt",
+      };
+      for (MapEntry<String, String> entry in names.entries) {
+        http.Response res = await http.get(
+          Uri.parse('$baseUrl/download-as').replace(
+            queryParameters: <String, String>{
+              'key': 'dl/a.txt',
+              'name': entry.key,
+            },
+          ),
+        );
+        expect(res.statusCode, 200, reason: entry.key);
+        expect(res.body, 'a');
+        expect(res.headers['content-disposition'], entry.value);
+        expect(res.headers['set-cookie'], isNull);
+      }
+
+      http.Response res = await http.get(
+        Uri.parse('$baseUrl/download-headers?key=dl/a.txt'),
+      );
+      expect(res.body, 'a');
+      expect(res.headers['cache-control'], 'no-store');
+      expect(
+        res.headers['content-disposition'],
+        'attachment; filename="report.txt"',
+      );
+      await Storage().deleteDirectory('dl');
+    });
+
     test('download streams with length and file name', () async {
       List<int> bytes = List<int>.generate(300000, (int i) => i % 256);
-      String path = await Storage().put('big', bytes, extension: 'bin');
+      String path = await Storage().putFile('big', bytes, extension: 'bin');
       http.Response res = await http.get(
         Uri.parse('$baseUrl/download?key=$path'),
       );
@@ -191,7 +367,7 @@ void main() {
     test('memory disk works through the same facade', () async {
       String path = await Storage()
           .disk('memory')
-          .put('notes', utf8.encode('hello'), extension: 'txt');
+          .putFile('notes', utf8.encode('hello'), extension: 'txt');
       http.Response res = await http.get(
         Uri.parse('$baseUrl/memory?key=$path'),
       );
@@ -225,14 +401,14 @@ void main() {
       expect(await Storage().exists('/facade-empty'), isFalse);
       await Directory('$root/facade-empty').delete();
 
-      String path = await Storage().put('tmp', <int>[1], extension: 'bin');
+      String path = await Storage().putFile('tmp', <int>[1], extension: 'bin');
       String url = await Storage().temporaryUrl(path);
       expect(url, startsWith('$baseUrl/files/tmp/'));
       expect((await http.get(Uri.parse(url))).statusCode, 200);
     });
 
     test('signed local URL is served, a bad one is 403', () async {
-      String path = await Storage().put(
+      String path = await Storage().putFile(
         'secret',
         utf8.encode('top'),
         extension: 'txt',

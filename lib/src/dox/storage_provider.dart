@@ -32,7 +32,7 @@ extension RequestFileStore on RequestFile {
   /// String path = await image.store('images', disk: 's3');
   /// ```
   Future<String> store(String folder, {String? disk}) {
-    return _storage(disk).putRequestFile(folder, this);
+    return _storage(disk).putFile(folder, this);
   }
 
   /// store the file with the given [name] and return its path.
@@ -43,7 +43,7 @@ extension RequestFileStore on RequestFile {
   /// String path = await image.storeAs('avatars', 'user-1.png');
   /// ```
   Future<String> storeAs(String folder, String name, {String? disk}) {
-    return _storage(disk).putRequestFileAs(folder, name, this);
+    return _storage(disk).putFileAs(folder, this, name);
   }
 
   Storage _storage(String? disk) {

@@ -28,9 +28,23 @@ class LocalDriverConfig {
   /// Secret for signed URLs (use your APP_KEY). Needed for `getSignedUrl`.
   final String? appKey;
 
-  /// The local disk has no per-file access rules. This value is what
-  /// `getVisibility` returns for every file.
+  /// The default visibility of new files. Without [permissions], the
+  /// local disk has no per-file access rules, and `getVisibility` returns
+  /// this value for every file.
   final Visibility visibility;
+
+  /// Off (null) by default: `setVisibility` does nothing and file modes
+  /// are not changed.
+  ///
+  /// When set, visibility is the file mode, like Laravel: `setVisibility`
+  /// runs `chmod` on a file or folder, and `getVisibility` reads the mode.
+  /// `put` and `putStream` set the mode of the file from the write
+  /// visibility, or from [visibility]. `copy` and `move` keep the mode,
+  /// unless a write visibility is given. A mode equal to the private mode
+  /// is private; any other mode is public, like Laravel.
+  ///
+  /// Windows has no `chmod`. There it stays off, even when set.
+  final LocalPermissions? permissions;
 
   /// Name of the disk. Signed URLs include it, so a URL signed for one
   /// local disk does not work on another. `StorageDiskFactory` sets it.
@@ -57,6 +71,25 @@ class LocalDriverConfig {
     this.urlBase,
     this.appKey,
     this.visibility = Visibility.public,
+    this.permissions,
+  });
+}
+
+/// File and folder modes for [LocalDriverConfig.permissions].
+/// The defaults are the Laravel ones: public file 0644, private file 0600,
+/// public folder 0755, private folder 0700. Dart has no octal numbers, so
+/// they are written in hex here.
+class LocalPermissions {
+  final int filePublic;
+  final int filePrivate;
+  final int dirPublic;
+  final int dirPrivate;
+
+  const LocalPermissions({
+    this.filePublic = 0x1a4,
+    this.filePrivate = 0x180,
+    this.dirPublic = 0x1ed,
+    this.dirPrivate = 0x1c0,
   });
 }
 
@@ -154,19 +187,70 @@ class LocalDriver implements DriverContract {
     );
   }
 
+  /// The [LocalDriverConfig.permissions] in use. Null when off or on
+  /// Windows.
+  LocalPermissions? get _modes {
+    return Platform.isWindows ? null : config.permissions;
+  }
+
   @override
   Future<Visibility> getVisibility(String key) async {
-    if (!await exists(key)) {
+    LocalPermissions? modes = _modes;
+    if (modes == null) {
+      if (!await exists(key)) {
+        throw FileNotFoundException(key);
+      }
+      return config.visibility;
+    }
+    FileStat stat = await FileStat.stat(pathFor(key));
+    bool folder = stat.type == FileSystemEntityType.directory;
+    if (!folder && stat.type != FileSystemEntityType.file) {
       throw FileNotFoundException(key);
     }
-    return config.visibility;
+    int private = folder ? modes.dirPrivate : modes.filePrivate;
+    return stat.mode & 0x1ff == private
+        ? Visibility.private
+        : Visibility.public;
   }
 
   @override
   Future<void> setVisibility(String key, Visibility visibility) async {
-    // ponytail: no per-file ACL on a local disk; protect files with routes.
-    if (!await exists(key)) {
+    if (_modes == null) {
+      // ponytail: no per-file ACL on a local disk unless `permissions` is
+      // set; protect files with routes.
+      if (!await exists(key)) {
+        throw FileNotFoundException(key);
+      }
+      return;
+    }
+    await _chmod(key, visibility);
+  }
+
+  /// Set the mode of a file or folder for [visibility]. Does nothing when
+  /// [LocalDriverConfig.permissions] is off.
+  Future<void> _chmod(String key, Visibility visibility) async {
+    LocalPermissions? modes = _modes;
+    if (modes == null) {
+      return;
+    }
+    String path = pathFor(key);
+    FileSystemEntityType type = await FileSystemEntity.type(path);
+    bool folder = type == FileSystemEntityType.directory;
+    if (!folder && type != FileSystemEntityType.file) {
       throw FileNotFoundException(key);
+    }
+    bool public = visibility == Visibility.public;
+    int mode = folder
+        ? (public ? modes.dirPublic : modes.dirPrivate)
+        : (public ? modes.filePublic : modes.filePrivate);
+    // ponytail: dart:io has no chmod, so this starts a process. Only with
+    // `permissions` on. Use FFI if many writes per second matter.
+    ProcessResult result = await Process.run('chmod', <String>[
+      mode.toRadixString(8),
+      path,
+    ]);
+    if (result.exitCode != 0) {
+      throw PermissionDeniedException(key, cause: result.stderr);
     }
   }
 
@@ -210,10 +294,11 @@ class LocalDriver implements DriverContract {
     File file = await _writableFile(key);
     if (!config.atomicWrites) {
       await _io(key, file.writeAsBytes(contents, flush: true));
-      return;
+    } else {
+      File temp = _tempFile(file);
+      await _replace(key, file, temp, temp.writeAsBytes(contents, flush: true));
     }
-    File temp = _tempFile(file);
-    await _replace(key, file, temp, temp.writeAsBytes(contents, flush: true));
+    await _chmod(key, options.visibility ?? config.visibility);
   }
 
   @override
@@ -225,10 +310,11 @@ class LocalDriver implements DriverContract {
     File file = await _writableFile(key);
     if (!config.atomicWrites) {
       await _writeStream(file, contents);
-      return;
+    } else {
+      File temp = _tempFile(file);
+      await _replace(key, file, temp, _writeStream(temp, contents));
     }
-    File temp = _tempFile(file);
-    await _replace(key, file, temp, _writeStream(temp, contents));
+    await _chmod(key, options.visibility ?? config.visibility);
   }
 
   Future<void> _writeStream(File file, Stream<List<int>> contents) async {
@@ -294,6 +380,11 @@ class LocalDriver implements DriverContract {
     String from = pathFor(source);
     await _writableFile(destination);
     await _io(source, File(from).copy(pathFor(destination)));
+    // The copy keeps the mode of the source, unless a visibility is given.
+    Visibility? visibility = options.visibility;
+    if (visibility != null) {
+      await _chmod(destination, visibility);
+    }
   }
 
   @override
@@ -305,6 +396,10 @@ class LocalDriver implements DriverContract {
     String from = pathFor(source);
     await _writableFile(destination);
     await _io(source, File(from).rename(pathFor(destination)));
+    Visibility? visibility = options.visibility;
+    if (visibility != null) {
+      await _chmod(destination, visibility);
+    }
   }
 
   @override

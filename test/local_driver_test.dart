@@ -39,6 +39,144 @@ void main() {
     },
   );
 
+  Directory? modesDir;
+  runDiskContract(
+    'LocalDriver with permissions',
+    () async {
+      modesDir = await Directory.systemTemp.createTemp('dox_storage_');
+      return Disk(
+        LocalDriver(
+          LocalDriverConfig(
+            root: modesDir!.path,
+            permissions: const LocalPermissions(),
+          ),
+        ),
+      );
+    },
+    cleanUp: () async {
+      await modesDir?.delete(recursive: true);
+    },
+  );
+
+  group('LocalDriver permissions', () {
+    late Directory dir;
+
+    setUp(() async {
+      dir = await Directory.systemTemp.createTemp('dox_storage_');
+    });
+
+    tearDown(() async {
+      await dir.delete(recursive: true);
+    });
+
+    Disk modes({Visibility visibility = Visibility.public}) {
+      return Disk(
+        LocalDriver(
+          LocalDriverConfig(
+            root: dir.path,
+            visibility: visibility,
+            permissions: const LocalPermissions(),
+          ),
+        ),
+      );
+    }
+
+    String mode(String key) {
+      int bits = File(p.join(dir.path, key)).statSync().mode & 0x1ff;
+      return bits.toRadixString(8);
+    }
+
+    test('setVisibility runs chmod, getVisibility reads the mode', () async {
+      Disk disk = modes();
+      await disk.put('a.txt', 'a');
+      expect(mode('a.txt'), '644');
+      expect(await disk.getVisibility('a.txt'), Visibility.public);
+      await disk.setVisibility('a.txt', Visibility.private);
+      expect(mode('a.txt'), '600');
+      expect(await disk.getVisibility('a.txt'), Visibility.private);
+      await disk.setVisibility('a.txt', Visibility.public);
+      expect(mode('a.txt'), '644');
+      expect(
+        disk.setVisibility('nope.txt', Visibility.private),
+        throwsA(isA<FileNotFoundException>()),
+      );
+      expect(
+        disk.getVisibility('nope.txt'),
+        throwsA(isA<FileNotFoundException>()),
+      );
+      expect(
+        disk.setVisibility('../a.txt', Visibility.private),
+        throwsA(isA<InvalidKeyException>()),
+      );
+    });
+
+    test('folders use the folder modes', () async {
+      Disk disk = modes();
+      await disk.put('dir/a.txt', 'a');
+      await disk.setVisibility('dir', Visibility.private);
+      expect(mode('dir'), '700');
+      expect(await disk.getVisibility('dir'), Visibility.private);
+      await disk.setVisibility('dir', Visibility.public);
+      expect(mode('dir'), '755');
+      expect(await disk.getVisibility('dir'), Visibility.public);
+    });
+
+    test('writes use the write visibility, then the disk one', () async {
+      Disk disk = modes(visibility: Visibility.private);
+      await disk.put('a.txt', 'a');
+      expect(mode('a.txt'), '600');
+      await disk.putStream('s.txt', Stream<List<int>>.value(<int>[1]));
+      expect(mode('s.txt'), '600');
+      await disk.put(
+        'b.txt',
+        'b',
+        options: const WriteOptions(visibility: Visibility.public),
+      );
+      expect(mode('b.txt'), '644');
+      await disk.copy('a.txt', 'copy.txt');
+      expect(mode('copy.txt'), '600', reason: 'a copy keeps the mode');
+      await disk.move(
+        'copy.txt',
+        'moved.txt',
+        options: const WriteOptions(visibility: Visibility.public),
+      );
+      expect(mode('moved.txt'), '644');
+      await disk.append('a.txt', 'more');
+      expect(mode('a.txt'), '600', reason: 'append keeps the mode');
+      await disk.setVisibility('b.txt', Visibility.private);
+      await disk.prepend('b.txt', 'more');
+      expect(mode('b.txt'), '600', reason: 'prepend keeps the mode');
+    });
+
+    test('custom modes from the disk config', () async {
+      DriverContract driver = const StorageDiskFactory().driver(
+        'local',
+        <String, dynamic>{
+          'driver': 'local',
+          'root': dir.path,
+          'permissions': <String, dynamic>{
+            'file': <String, int>{'private': 0x1a0}, // 0640
+          },
+        },
+      );
+      Disk disk = Disk(driver);
+      await disk.put('a.txt', 'a');
+      await disk.setVisibility('a.txt', Visibility.private);
+      expect(mode('a.txt'), '640');
+      expect(await disk.getVisibility('a.txt'), Visibility.private);
+      LocalPermissions? on = (const StorageDiskFactory().driver(
+        'x',
+        <String, dynamic>{'driver': 'local', 'permissions': true},
+      ) as LocalDriver).config.permissions;
+      expect(on?.filePublic, 0x1a4);
+      LocalDriver off = const StorageDiskFactory().driver(
+        'x',
+        <String, dynamic>{'driver': 'local'},
+      ) as LocalDriver;
+      expect(off.config.permissions, isNull);
+    });
+  }, testOn: '!windows');
+
   group('LocalDriver', () {
     late Directory dir;
     late FixedClock clock;

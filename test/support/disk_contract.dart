@@ -230,6 +230,60 @@ void runDiskContract(
       expect(await disk.exists('old.txt'), isFalse);
     });
 
+    test('files, allFiles and directories', () async {
+      await disk.put('tree/a.txt', 'a');
+      await disk.put('tree/b.txt', 'b');
+      await disk.put('tree/sub/c.txt', 'c');
+      await disk.put('tree/sub/deep/d.txt', 'd');
+      await disk.put('tree2/e.txt', 'e');
+      expect(await disk.files('tree'), <String>['tree/a.txt', 'tree/b.txt']);
+      expect(await disk.allFiles('tree'), <String>[
+        'tree/a.txt',
+        'tree/b.txt',
+        'tree/sub/c.txt',
+        'tree/sub/deep/d.txt',
+      ]);
+      expect(await disk.directories('tree'), <String>['tree/sub']);
+      expect(await disk.directories(), <String>['tree', 'tree2']);
+      expect(await disk.files(), isEmpty);
+      expect(await disk.files('nothing-here'), isEmpty);
+      expect(disk.files('../x'), throwsA(isA<InvalidKeyException>()));
+    });
+
+    test('deleteDirectory removes the folder, never the root', () async {
+      await disk.put('gone/a.txt', 'a');
+      await disk.put('gone/sub/b.txt', 'b');
+      await disk.put('gone2/c.txt', 'c');
+      await disk.deleteDirectory('gone');
+      expect(await disk.allFiles('gone'), isEmpty);
+      expect(await disk.directoryExists('gone'), isFalse);
+      expect(await disk.exists('gone2/c.txt'), isTrue);
+      await disk.deleteDirectory('not-there');
+      for (String root in <String>['', '/', '.', './', '..', 'a/../..']) {
+        await expectLater(
+          disk.deleteDirectory(root),
+          throwsA(isA<InvalidKeyException>()),
+          reason: root,
+        );
+      }
+      expect(await disk.exists('gone2/c.txt'), isTrue);
+    });
+
+    test('missing', () async {
+      expect(await disk.missing('m.txt'), isTrue);
+      await disk.put('m.txt', 'x');
+      expect(await disk.missing('m.txt'), isFalse);
+    });
+
+    test('copy and move refuse a .. key', () async {
+      await disk.put('safe.txt', 'x');
+      Matcher invalid = throwsA(isA<InvalidKeyException>());
+      expect(disk.copy('safe.txt', '../x.txt'), invalid);
+      expect(disk.copy('../x.txt', 'safe2.txt'), invalid);
+      expect(disk.move('safe.txt', 'a/../../x.txt'), invalid);
+      expect(disk.move('../x.txt', 'safe2.txt'), invalid);
+    });
+
     test('listAll lists files and folders, not recursive', () async {
       await disk.put('docs/a.txt', 'a');
       await disk.put('docs/b.txt', 'b');
