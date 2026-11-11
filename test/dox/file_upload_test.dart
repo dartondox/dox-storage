@@ -208,7 +208,11 @@ void main() {
       expect(url, endsWith('.png'));
     });
 
-    test('putFile with bytes or a request file, putFileAs', () async {
+    test('put, putFile with bytes or a request file, putFileAs', () async {
+      Route.post('/image/put', (DoxRequest req) async {
+        RequestFile file = req.input('image') as RequestFile;
+        return await Storage().put('images', await file.bytes);
+      });
       Route.post('/image/put-file-bytes', (DoxRequest req) async {
         RequestFile file = req.input('image') as RequestFile;
         return await Storage().putFile('images', await file.bytes);
@@ -224,7 +228,7 @@ void main() {
 
       String dir = Directory.current.path;
       File imageFile = File('$dir/test/dox/fixtures/dox.png');
-      for (String path in <String>['put-file-bytes', 'put-file']) {
+      for (String path in <String>['put', 'put-file-bytes', 'put-file']) {
         String? url = await uploadImage('$baseUrl/image/$path', imageFile);
         expect(url, matches(RegExp(r'^/images/[0-9a-f-]+\.png$')));
         expect(await Storage().get(url!), imageFile.readAsBytesSync());
