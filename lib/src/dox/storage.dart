@@ -145,6 +145,7 @@ class Storage {
   /// String path = await Storage().put('images', bytes, extension: 'png');
   /// await Storage().put('reports/2026-11.csv', csv, exact: true);
   /// ```
+  // NEXT MAJOR: make exact-path the only behavior of put, then remove the exact option (putFile keeps the folder + uuid form).
   Future<String> put(
     String path,
     Object contents, {
