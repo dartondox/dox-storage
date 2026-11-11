@@ -9,10 +9,11 @@
   - An overwrite keeps the mode of the file, unless the write gives a visibility. So an overwrite does not make a private file public. A new file gets the write visibility, or the disk `visibility`.
   - Folders that a write makes get the folder mode. Folders that were there before keep their mode.
   - `append` and `prepend` keep the exact mode, also a custom one like 0640.
+  - A copy is written to a temp file in the same folder, then renamed. So a copy never empties its own source, also through a symlink, a hard link or another case of the name. The rename replaces a symlink or hard link at the new path.
   - A copy gets the mode of the write visibility, or else the mode of the source. This is also true over a file that is there. So a copy of a private file is private.
-  - A `move` with a visibility sets the mode on the source before the rename. So a failed `move` does not lose the file at the new path.
-  - When an overwrite fails, the file gets its old mode back. A read-only mode like 0444 works.
-  - A mode in the `permissions` map below 0 or above 0o7777 throws `ArgumentError`.
+  - A `move` with a visibility sets the mode on the source before the rename. So a failed `move` does not lose the file at the new path. If the rename fails, the source gets its old mode back. A symlink source with a visibility throws before any folder is made.
+  - When an overwrite fails, the file gets its old mode back. The owner can read and write while the content goes in, so modes like 0444 or 0200 work.
+  - Each mode must be an int from 0 to 0o777 (0x1ff). Anything else, like the string `'0644'` or a setuid bit, throws `ArgumentError` when the disk is made.
   - Visibility does not follow symlinks. `getVisibility` and `setVisibility` on a link throw `UnsupportedOperationException`.
 - Fix: `copy()` and `move()` of a missing file on a local disk made the folders of the new path first. They now throw `FileNotFoundException` and make nothing.
 - Fix: `Storage().size()` and `Storage().lastModified()` of a missing file made Dox answer 500. They now answer 404, like `Storage().stream()`. The error is still a `FileNotFoundException`, so `on FileNotFoundException` keeps working.

@@ -190,8 +190,12 @@ class Disk {
     // `permissions` on, a write with no visibility keeps the real file
     // mode by itself, and a visibility here could change a custom mode
     // like 0640. So skip the extra reads there. A subclass may override
-    // them, so only the exact LocalDriver type is skipped.
-    if (old == null || driver.runtimeType == LocalDriver) {
+    // them, so with `permissions` off only the exact LocalDriver type is
+    // skipped.
+    DriverContract target = driver;
+    if (old == null ||
+        target.runtimeType == LocalDriver ||
+        (target is LocalDriver && target.config.permissions != null)) {
       return const WriteOptions();
     }
     try {

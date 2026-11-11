@@ -46,19 +46,26 @@ class LocalDriverConfig {
   /// visibility, or [visibility]. A file that is there keeps its mode,
   /// unless the write gives a visibility. This is safer than Laravel: an
   /// overwrite does not make a private file public. `append` and `prepend`
-  /// keep the exact mode, also a custom one like 0640. A copy gets the
-  /// mode of the write visibility, or else the mode of the source, also
-  /// over a file that is there. `move` keeps the mode of the source,
-  /// unless a write visibility is given; then the source gets the mode
-  /// before the rename. Folders
-  /// that a write makes get the folder mode of the write visibility.
-  /// Folders that were there before keep their mode.
+  /// keep the exact mode, also a custom one like 0640.
+  ///
+  /// A copy is written to a temp file in the same folder, then renamed.
+  /// So a copy can never empty its own source, also through a symlink, a
+  /// hard link or another case of the name. Like [atomicWrites], the
+  /// rename replaces a symlink or hard link at the new path. The copy
+  /// gets the mode of the write visibility, or else the mode of the
+  /// source. `move` keeps the mode of the source, unless a write
+  /// visibility is given; then the source gets the mode before the
+  /// rename, and gets its old mode back if the rename fails.
+  ///
+  /// Folders that a write makes get the folder mode of the write
+  /// visibility. Folders that were there before keep their mode.
   ///
   /// Visibility does not follow symlinks: `getVisibility` and
   /// `setVisibility` on a link throw [UnsupportedOperationException].
   /// When `chmod` fails, a file that the write made is deleted. When an
-  /// overwrite fails, the file gets its old mode back. A mode below 0 or
-  /// above 0o7777 throws [ArgumentError].
+  /// overwrite fails, the file gets its old mode back. The owner can read
+  /// and write the file while the content goes in, so modes like 0444 or
+  /// 0200 work.
   ///
   /// Windows has no `chmod`. There it stays off, even when set.
   final LocalPermissions? permissions;
@@ -96,6 +103,10 @@ class LocalDriverConfig {
 /// The defaults are the Laravel ones: public file 0644, private file 0600,
 /// public folder 0755, private folder 0700. Dart has no octal numbers, so
 /// they are written in hex here.
+///
+/// Each mode must be from 0 to 0o777 (0x1ff). Bits above that (setuid,
+/// sticky) are not supported, because `getVisibility` only reads 0o777.
+/// [LocalDriver] throws [ArgumentError] for a mode out of that range.
 class LocalPermissions {
   final int filePublic;
   final int filePrivate;
@@ -108,6 +119,25 @@ class LocalPermissions {
     this.dirPublic = 0x1ed,
     this.dirPrivate = 0x1c0,
   });
+
+  /// Throw [ArgumentError] when a mode is not from 0 to 0o777 (0x1ff).
+  void check() {
+    Map<String, int> all = <String, int>{
+      'filePublic': filePublic,
+      'filePrivate': filePrivate,
+      'dirPublic': dirPublic,
+      'dirPrivate': dirPrivate,
+    };
+    for (MapEntry<String, int> entry in all.entries) {
+      if (entry.value < 0 || entry.value > 0x1ff) {
+        throw ArgumentError.value(
+          entry.value,
+          entry.key,
+          'a mode must be from 0 to 0o777 (0x1ff)',
+        );
+      }
+    }
+  }
 }
 
 /// Stores files in a folder on the local disk.
@@ -130,7 +160,9 @@ class LocalDriver implements DriverContract {
   }) : root = p.normalize(p.absolute(config.root)),
        signer = config.appKey == null
            ? null
-           : LocalUrlSigner(config.appKey!, disk: config.disk, clock: clock);
+           : LocalUrlSigner(config.appKey!, disk: config.disk, clock: clock) {
+    config.permissions?.check();
+  }
 
   /// Check a signed URL in the route that serves files.
   /// [key] is the decoded file key from the path.
@@ -293,10 +325,11 @@ class LocalDriver implements DriverContract {
     return visibility == Visibility.public ? modes.dirPublic : modes.dirPrivate;
   }
 
-  /// Run `chmod` on [paths]. A mode below 0 or above 0o7777 throws
-  /// [ArgumentError], so it never reaches the `chmod` arguments.
+  /// Run `chmod` on [paths]. The modes are checked when the driver is
+  /// made; this check is a second guard, so a bad number never reaches
+  /// the `chmod` arguments.
   Future<void> _chmodPaths(String key, List<String> paths, int mode) async {
-    RangeError.checkValueInInterval(mode, 0, 0xfff, 'mode');
+    RangeError.checkValueInInterval(mode, 0, 0x1ff, 'mode');
     // ponytail: dart:io has no chmod, so this starts a process. Only with
     // `permissions` on. Use FFI if many writes per second matter.
     ProcessResult result = await Process.run('chmod', <String>[
@@ -420,8 +453,9 @@ class LocalDriver implements DriverContract {
     Object contents,
     int? mode,
     Visibility folders,
-    LocalPermissions modes,
-  ) async {
+    LocalPermissions modes, {
+    bool atomic = false,
+  }) async {
     File file = File(pathFor(key));
     await _makeParents(key, file, modes, folders);
     FileStat stat = await file.stat();
@@ -429,7 +463,7 @@ class LocalDriver implements DriverContract {
         ? stat.mode & 0x1ff
         : null;
     int newMode = mode ?? oldMode ?? _fileMode(modes, config.visibility);
-    if (config.atomicWrites) {
+    if (atomic || config.atomicWrites) {
       File temp = _tempFile(file);
       await _replace(key, file, temp, _writeNew(key, temp, contents, newMode));
       return;
@@ -439,16 +473,16 @@ class LocalDriver implements DriverContract {
       await _writeNew(key, file, contents, newMode);
       return;
     }
-    if (newMode == oldMode && oldMode & _ownerWrite != 0) {
+    if (newMode == oldMode && oldMode & _ownerRw == _ownerRw) {
       await _io(key, _writeTo(file, contents));
       return;
     }
     // Overwrite with a new mode. First keep only the bits that both modes
     // have, then write, then set the new mode. So no one can read the old
-    // or the new content who should not. The owner keeps the write bit
-    // during the write, so a read-only mode like 0444 works.
+    // or the new content who should not. The owner keeps read and write
+    // during the write, so modes like 0444 work.
     await _noLink(key, file.path);
-    int both = (newMode & oldMode) | _ownerWrite;
+    int both = (newMode & oldMode) | _ownerRw;
     if (both != oldMode) {
       await _chmodPaths(key, <String>[file.path], both);
     }
@@ -465,11 +499,12 @@ class LocalDriver implements DriverContract {
     }
   }
 
-  /// The owner write bit (0o200).
-  static const int _ownerWrite = 0x80;
+  /// The owner read and write bits (0o600). Dart opens a file for read
+  /// and write, so the owner needs both while the content goes in.
+  static const int _ownerRw = 0x180;
 
   /// Make [file] as an empty file with [mode], then write [contents].
-  /// The owner can write while the content goes in. When `chmod` fails,
+  /// The owner can read and write while the content goes in. When `chmod` fails,
   /// the new file is deleted.
   Future<void> _writeNew(
     String key,
@@ -479,13 +514,13 @@ class LocalDriver implements DriverContract {
   ) async {
     await _io(key, file.writeAsBytes(const <int>[], flush: true));
     try {
-      await _chmodPaths(key, <String>[file.path], mode | _ownerWrite);
+      await _chmodPaths(key, <String>[file.path], mode | _ownerRw);
     } catch (_) {
       await _deleteQuietly(file);
       rethrow;
     }
     await _io(key, _writeTo(file, contents));
-    if (mode & _ownerWrite == 0) {
+    if (mode & _ownerRw != _ownerRw) {
       try {
         await _chmodPaths(key, <String>[file.path], mode);
       } catch (_) {
@@ -585,10 +620,13 @@ class LocalDriver implements DriverContract {
     await _io(source, File(from).copy(pathFor(destination)));
   }
 
-  /// [copy] with `permissions` on. It writes like [put]: an empty file,
-  /// the mode, then the content. The mode is the write visibility, or the
-  /// mode of the source. So a copy of a private file is private, also over
-  /// a public file.
+  /// [copy] with `permissions` on. It writes like an atomic [put]: a
+  /// temp file in the same folder gets the mode, then the content, then
+  /// it is renamed to [destination]. The source is only read and the
+  /// destination is never opened for writing. So the copy can not empty
+  /// its source, even when both names are the same file (a symlink, a
+  /// hard link, or another case of the name). The mode is the write
+  /// visibility, or the mode of the source.
   Future<void> _copyWithModes(
     String source,
     String from,
@@ -601,18 +639,13 @@ class LocalDriver implements DriverContract {
       throw FileNotFoundException(source);
     }
     Visibility? visibility = options.visibility;
-    if (p.equals(from, pathFor(destination))) {
-      if (visibility != null) {
-        await _chmod(destination, visibility);
-      }
-      return;
-    }
     await _putWithModes(
       destination,
       File(from).openRead(),
       visibility != null ? _fileMode(modes, visibility) : stat.mode & 0x1ff,
       visibility ?? config.visibility,
       modes,
+      atomic: true,
     );
   }
 
@@ -630,6 +663,9 @@ class LocalDriver implements DriverContract {
       await _writableFile(destination);
       await _io(source, File(from).rename(to));
       return;
+    }
+    if (visibility != null) {
+      await _noLink(source, from);
     }
     await _makeParents(
       destination,

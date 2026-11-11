@@ -224,28 +224,6 @@ void main() {
         expect(await disk.getString('old.txt'), 'secret');
       });
 
-      test('a failed chmod leaves no new file (atomic: $atomic)', () async {
-        Disk disk = Disk(
-          LocalDriver(
-            LocalDriverConfig(
-              root: dir.path,
-              atomicWrites: atomic,
-              // not a valid mode, so the mode step fails
-              permissions: const LocalPermissions(filePublic: 0x10000),
-            ),
-          ),
-        );
-        await expectLater(
-          disk.put('a.txt', 'a'),
-          throwsA(isA<DriverException>()),
-        );
-        await expectLater(
-          disk.putStream('b.txt', Stream<List<int>>.value(<int>[1])),
-          throwsA(isA<DriverException>()),
-        );
-        expect(dir.listSync(), isEmpty);
-      });
-
       test('an overwrite keeps the mode (atomic: $atomic)', () async {
         Disk disk = Disk(
           LocalDriver(
@@ -398,19 +376,132 @@ void main() {
       });
     }
 
-    test('a bad mode in the config is rejected', () {
-      for (int bad in <int>[-1, 0x1000]) {
+    test('a bad mode is rejected', () {
+      for (Object bad in <Object>[-1, 0x200, '0644']) {
         expect(
           () => const StorageDiskFactory().driver('x', <String, dynamic>{
             'driver': 'local',
             'permissions': <String, dynamic>{
-              'file': <String, int>{'private': bad},
+              'file': <String, Object>{'private': bad},
             },
           }),
           throwsArgumentError,
           reason: '$bad',
         );
       }
+      expect(
+        () => LocalDriver(
+          LocalDriverConfig(
+            root: dir.path,
+            permissions: const LocalPermissions(filePublic: 0x11ff),
+          ),
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('a write-only mode like 0200 works', () async {
+      Disk disk = Disk(
+        LocalDriver(
+          LocalDriverConfig(
+            root: dir.path,
+            permissions: const LocalPermissions(filePublic: 0x80),
+          ),
+        ),
+      );
+      await disk.put('a.txt', 'a');
+      expect(mode('a.txt'), '200');
+      await disk.put('a.txt', 'b');
+      expect(mode('a.txt'), '200');
+    });
+
+    test('a failed chmod leaves no new file', () async {
+      Directory bin = await Directory.systemTemp.createTemp('dox_bin_');
+      try {
+        File fake = File(p.join(bin.path, 'chmod'))
+          ..writeAsStringSync('#!/bin/sh\nexit 1\n');
+        Process.runSync('chmod', <String>['755', fake.path]);
+        ProcessResult result = await Process.run(
+          Platform.resolvedExecutable,
+          <String>[
+            '--packages=${p.join('.dart_tool', 'package_config.json')}',
+            p.join('test', 'support', 'failing_chmod_main.dart'),
+            dir.path,
+          ],
+          environment: <String, String>{'PATH': bin.path},
+        );
+        expect(result.stderr, '');
+        expect((result.stdout as String).trim(), 'clean');
+      } finally {
+        await bin.delete(recursive: true);
+      }
+    });
+
+    test('a copy never empties its own source', () async {
+      Disk disk = modes();
+      await disk.put('c.txt', 'source');
+      Link(p.join(dir.path, 'lnk')).createSync(p.join(dir.path, 'c.txt'));
+      await disk.copy('c.txt', 'lnk');
+      expect(await disk.getString('c.txt'), 'source');
+      Process.runSync('ln', <String>[
+        p.join(dir.path, 'c.txt'),
+        p.join(dir.path, 'hard.txt'),
+      ]);
+      await disk.copy('c.txt', 'hard.txt');
+      expect(await disk.getString('c.txt'), 'source');
+      await disk.copy('c.txt', 'c.txt');
+      expect(await disk.getString('c.txt'), 'source');
+      if (File(p.join(dir.path, 'C.TXT')).existsSync()) {
+        // a case-insensitive disk, like macOS
+        await disk.copy('c.txt', 'C.TXT');
+        expect(await disk.getString('c.txt'), 'source');
+      }
+    });
+
+    test('a subclass of LocalDriver keeps a custom mode on append', () async {
+      Disk disk = Disk(
+        _SubLocal(
+          LocalDriverConfig(
+            root: dir.path,
+            permissions: const LocalPermissions(),
+          ),
+        ),
+      );
+      await disk.put('a.txt', 'a');
+      Process.runSync('chmod', <String>['640', p.join(dir.path, 'a.txt')]);
+      await disk.append('a.txt', 'b');
+      expect(mode('a.txt'), '640');
+    });
+
+    test('a move of a symlink with a visibility makes no folders', () async {
+      Disk disk = modes();
+      await disk.put('t.txt', 't');
+      Link(p.join(dir.path, 'l.txt')).createSync(p.join(dir.path, 't.txt'));
+      await expectLater(
+        disk.move(
+          'l.txt',
+          'x/y/l.txt',
+          options: const WriteOptions(visibility: Visibility.private),
+        ),
+        throwsA(isA<UnsupportedOperationException>()),
+      );
+      expect(Directory(p.join(dir.path, 'x')).existsSync(), isFalse);
+    });
+
+    test('a failed move rename puts the source mode back', () async {
+      Disk disk = modes();
+      await disk.put('a.txt', 'a');
+      await disk.put('full/inner.txt', 'i');
+      await expectLater(
+        disk.move(
+          'a.txt',
+          'full',
+          options: const WriteOptions(visibility: Visibility.private),
+        ),
+        throwsA(isA<StorageException>()),
+      );
+      expect(mode('a.txt'), '644');
+      expect(await disk.getString('a.txt'), 'a');
     });
 
     test('visibility does not follow a symlink out of the root', () async {
@@ -910,4 +1001,8 @@ class _CountingLocalDriver extends LocalDriver {
     metaDataReads++;
     return super.getMetaData(key);
   }
+}
+
+class _SubLocal extends LocalDriver {
+  _SubLocal(super.config);
 }

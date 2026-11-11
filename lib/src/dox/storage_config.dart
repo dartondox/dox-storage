@@ -129,24 +129,27 @@ class StorageDiskFactory {
     const LocalPermissions base = LocalPermissions();
     Object? file = value['file'];
     Object? dir = value['dir'];
-    return LocalPermissions(
+    LocalPermissions modes = LocalPermissions(
       filePublic: _mode(file, 'public', base.filePublic),
       filePrivate: _mode(file, 'private', base.filePrivate),
       dirPublic: _mode(dir, 'public', base.dirPublic),
       dirPrivate: _mode(dir, 'private', base.dirPrivate),
     );
+    modes.check();
+    return modes;
   }
 
-  /// A mode from the `permissions` map. A number below 0 or above 0o7777
-  /// (0xfff) throws [ArgumentError], so a bad mode never reaches `chmod`.
+  /// A mode from the `permissions` map. A value that is not an int, like
+  /// the string `'0644'`, throws [ArgumentError]. The range (0 to 0o777)
+  /// is checked by [LocalPermissions.check].
   int _mode(Object? group, String name, int fallback) {
-    if (group is! Map || group[name] is! int) return fallback;
-    int mode = group[name] as int;
-    if (mode < 0 || mode > 0xfff) {
+    if (group is! Map || !group.containsKey(name)) return fallback;
+    Object? mode = group[name];
+    if (mode is! int) {
       throw ArgumentError.value(
         mode,
         'permissions',
-        'a mode must be between 0 and 0o7777 (0xfff)',
+        'a mode must be an int, like 0x1a4 for 0644',
       );
     }
     return mode;
