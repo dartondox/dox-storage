@@ -137,8 +137,19 @@ class StorageDiskFactory {
     );
   }
 
+  /// A mode from the `permissions` map. A number below 0 or above 0o7777
+  /// (0xfff) throws [ArgumentError], so a bad mode never reaches `chmod`.
   int _mode(Object? group, String name, int fallback) {
-    return group is Map && group[name] is int ? group[name] as int : fallback;
+    if (group is! Map || group[name] is! int) return fallback;
+    int mode = group[name] as int;
+    if (mode < 0 || mode > 0xfff) {
+      throw ArgumentError.value(
+        mode,
+        'permissions',
+        'a mode must be between 0 and 0o7777 (0xfff)',
+      );
+    }
+    return mode;
   }
 
   Visibility _visibility(Object? value, Visibility fallback) {

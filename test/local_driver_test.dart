@@ -230,18 +230,18 @@ void main() {
             LocalDriverConfig(
               root: dir.path,
               atomicWrites: atomic,
-              // not a valid mode, so chmod fails
+              // not a valid mode, so the mode step fails
               permissions: const LocalPermissions(filePublic: 0x10000),
             ),
           ),
         );
         await expectLater(
           disk.put('a.txt', 'a'),
-          throwsA(isA<PermissionDeniedException>()),
+          throwsA(isA<DriverException>()),
         );
         await expectLater(
           disk.putStream('b.txt', Stream<List<int>>.value(<int>[1])),
-          throwsA(isA<PermissionDeniedException>()),
+          throwsA(isA<DriverException>()),
         );
         expect(dir.listSync(), isEmpty);
       });
@@ -275,6 +275,143 @@ void main() {
         expect(mode('new.txt'), '644');
       });
     }
+
+    test('append and prepend keep a custom mode', () async {
+      Disk disk = modes();
+      for (String bits in <String>['640', '664']) {
+        await disk.put('a.txt', 'a');
+        Process.runSync('chmod', <String>[bits, p.join(dir.path, 'a.txt')]);
+        await disk.append('a.txt', 'b');
+        expect(mode('a.txt'), bits);
+        await disk.prepend('a.txt', 'c');
+        expect(mode('a.txt'), bits);
+        expect(await disk.getString('a.txt'), 'c\na\nb');
+      }
+    });
+
+    test('a failed move keeps the old file at the destination', () async {
+      Disk disk = modes();
+      await disk.put('b.txt', 'old');
+      await disk.put('target.txt', 't');
+      Link link = Link(p.join(dir.path, 'link.txt'))
+        ..createSync(p.join(dir.path, 'target.txt'));
+      await expectLater(
+        disk.move(
+          'link.txt',
+          'b.txt',
+          options: const WriteOptions(visibility: Visibility.private),
+        ),
+        throwsA(isA<UnsupportedOperationException>()),
+      );
+      expect(await disk.getString('b.txt'), 'old');
+      expect(link.existsSync(), isTrue);
+      expect(mode('target.txt'), '644');
+      await disk.move(
+        'target.txt',
+        'moved.txt',
+        options: const WriteOptions(visibility: Visibility.private),
+      );
+      expect(mode('moved.txt'), '600');
+    });
+
+    test('a copy gets the write visibility or the source mode', () async {
+      Disk disk = modes();
+      await disk.put('pub.txt', 'pub');
+      await disk.put(
+        'priv.txt',
+        'priv',
+        options: const WriteOptions(visibility: Visibility.private),
+      );
+      await disk.put('old.txt', 'old');
+      await disk.copy(
+        'pub.txt',
+        'new.txt',
+        options: const WriteOptions(visibility: Visibility.private),
+      );
+      expect(mode('new.txt'), '600');
+      await disk.copy(
+        'pub.txt',
+        'old.txt',
+        options: const WriteOptions(visibility: Visibility.private),
+      );
+      expect(mode('old.txt'), '600');
+      expect(await disk.getString('old.txt'), 'pub');
+      await disk.put(
+        'old.txt',
+        'old',
+        options: const WriteOptions(visibility: Visibility.public),
+      );
+      await disk.copy('priv.txt', 'old.txt');
+      expect(mode('old.txt'), '600', reason: 'a private source stays private');
+      expect(await disk.getString('old.txt'), 'priv');
+      await disk.copy('priv.txt', 'priv.txt');
+      expect(await disk.getString('priv.txt'), 'priv');
+    });
+
+    test('a failed overwrite puts the old mode back', () async {
+      Disk disk = modes();
+      await disk.put('a.txt', 'old');
+      Stream<List<int>> broken() async* {
+        yield utf8.encode('half');
+        throw StateError('upload stopped');
+      }
+
+      await expectLater(
+        disk.putStream(
+          'a.txt',
+          broken(),
+          options: const WriteOptions(visibility: Visibility.private),
+        ),
+        throwsA(anything),
+      );
+      expect(mode('a.txt'), '644');
+    });
+
+    for (bool atomic in <bool>[false, true]) {
+      test('a read-only mode works (atomic: $atomic)', () async {
+        Disk disk = Disk(
+          LocalDriver(
+            LocalDriverConfig(
+              root: dir.path,
+              atomicWrites: atomic,
+              permissions: const LocalPermissions(filePublic: 0x124), // 0444
+            ),
+          ),
+        );
+        await disk.put('a.txt', 'a');
+        expect(mode('a.txt'), '444');
+        await disk.put('a.txt', 'b');
+        expect(mode('a.txt'), '444');
+        expect(await disk.getString('a.txt'), 'b');
+        await disk.put(
+          'b.txt',
+          'b',
+          options: const WriteOptions(visibility: Visibility.private),
+        );
+        await disk.put(
+          'b.txt',
+          'c',
+          options: const WriteOptions(visibility: Visibility.public),
+        );
+        expect(mode('b.txt'), '444');
+        expect(await disk.getString('b.txt'), 'c');
+      });
+    }
+
+    test('a bad mode in the config is rejected', () {
+      for (int bad in <int>[-1, 0x1000]) {
+        expect(
+          () => const StorageDiskFactory().driver('x', <String, dynamic>{
+            'driver': 'local',
+            'permissions': <String, dynamic>{
+              'file': <String, int>{'private': bad},
+            },
+          }),
+          throwsArgumentError,
+          reason: '$bad',
+        );
+      }
+    });
 
     test('visibility does not follow a symlink out of the root', () async {
       Directory outside = await Directory.systemTemp.createTemp('dox_out_');

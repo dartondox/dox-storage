@@ -186,15 +186,12 @@ class Disk {
   /// that already exists. So `append` does not make a private file public.
   /// A missing file ([old] is null) uses the disk defaults.
   Future<WriteOptions> _keepOptions(String key, Uint8List? old) async {
-    // ponytail: a plain local disk keeps no per-file content type, and no
-    // visibility unless `permissions` is on, so skip the extra reads there.
-    // A subclass may override them, so only the exact LocalDriver type is
-    // skipped.
-    // With `permissions` on, the file mode is the visibility, so keep it.
-    DriverContract target = driver;
-    if (old == null ||
-        (target.runtimeType == LocalDriver &&
-            (target as LocalDriver).config.permissions == null)) {
+    // ponytail: a plain local disk keeps no per-file content type. With
+    // `permissions` on, a write with no visibility keeps the real file
+    // mode by itself, and a visibility here could change a custom mode
+    // like 0640. So skip the extra reads there. A subclass may override
+    // them, so only the exact LocalDriver type is skipped.
+    if (old == null || driver.runtimeType == LocalDriver) {
       return const WriteOptions();
     }
     try {

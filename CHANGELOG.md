@@ -8,6 +8,11 @@
   - The mode is set before the content is written, so a private file is never open to others. If `chmod` fails, a file that the write made is deleted.
   - An overwrite keeps the mode of the file, unless the write gives a visibility. So an overwrite does not make a private file public. A new file gets the write visibility, or the disk `visibility`.
   - Folders that a write makes get the folder mode. Folders that were there before keep their mode.
+  - `append` and `prepend` keep the exact mode, also a custom one like 0640.
+  - A copy gets the mode of the write visibility, or else the mode of the source. This is also true over a file that is there. So a copy of a private file is private.
+  - A `move` with a visibility sets the mode on the source before the rename. So a failed `move` does not lose the file at the new path.
+  - When an overwrite fails, the file gets its old mode back. A read-only mode like 0444 works.
+  - A mode in the `permissions` map below 0 or above 0o7777 throws `ArgumentError`.
   - Visibility does not follow symlinks. `getVisibility` and `setVisibility` on a link throw `UnsupportedOperationException`.
 - Fix: `copy()` and `move()` of a missing file on a local disk made the folders of the new path first. They now throw `FileNotFoundException` and make nothing.
 - Fix: `Storage().size()` and `Storage().lastModified()` of a missing file made Dox answer 500. They now answer 404, like `Storage().stream()`. The error is still a `FileNotFoundException`, so `on FileNotFoundException` keeps working.
