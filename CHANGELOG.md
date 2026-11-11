@@ -1,5 +1,21 @@
 ## Unreleased
 
+- Breaking: `Storage().put(path, contents)` writes to that exact path, like Laravel `Storage::put`. Before, the first argument was a folder and the file got a new uuid name. To keep the old behavior, call `putFile`: `Storage().putFile('images', bytes, extension: 'png')`. `put` takes a `String`, a `List<int>` or a `Stream<List<int>>`, and returns nothing.
+- New: `Storage().putFile(folder, file)` stores a file with a new uuid name and returns its path, like Laravel `putFile`. `Storage().putFileAs(folder, file, name)` stores it with your name, like Laravel `putFileAs`. `file` is a `RequestFile` or bytes. `file.store()` and `file.storeAs()` use them.
+- New: `copy`, `move`, `files`, `allFiles`, `directories`, `deleteDirectory`, `missing`, `getVisibility` and `setVisibility` on `Storage()`, so you do not need `use()` for them. `files`, `allFiles`, `directories`, `deleteDirectory` and `missing` are on `Disk` too. `deleteDirectory` throws `InvalidKeyException` for the root (`''` or `/`), so a bad path can not empty a disk. `DriverContract` has no new methods, so custom drivers keep working.
+- New: `Storage().download(path, name: 'Invoice 42.pdf')` sets the file name the browser saves. The header is safe for any name. To add headers, wrap it: `response(await Storage().download(path)).header('Cache-Control', 'no-store')`.
+- New: the local disk option `permissions: true` (or `LocalDriverConfig(permissions: LocalPermissions())`). Then visibility is the file mode, like Laravel: `setVisibility` runs `chmod`, `getVisibility` reads the mode, and writes set the mode. The modes are public file 0644, private file 0600, public folder 0755, private folder 0700. Change them with a map like `{'file': {'private': 0x1a0}}`. It is off by default, so nothing changes. It does nothing on Windows.
+  - The mode is set before the content is written, so a private file is never open to others. If `chmod` fails, a file that the write made is deleted.
+  - An overwrite keeps the mode of the file, unless the write gives a visibility. So an overwrite does not make a private file public. A new file gets the write visibility, or the disk `visibility`.
+  - Folders that a write makes get the folder mode. Folders that were there before keep their mode.
+  - `append` and `prepend` keep the exact mode, also a custom one like 0640.
+  - A copy is written to a temp file in the same folder, then renamed. So a copy never empties its own source, also through a symlink, a hard link or another case of the name. The rename replaces a symlink or hard link at the new path. `listAll`, `files` and `allFiles` hide the temp file, also with `atomicWrites` off.
+  - A copy gets the mode of the write visibility, or else the mode of the source. This is also true over a file that is there. So a copy of a private file is private.
+  - A `move` with a visibility sets the mode on the source before the rename. So a failed `move` does not lose the file at the new path. If the rename fails, the source gets its old mode back. A symlink source with a visibility throws before any folder is made.
+  - When an overwrite fails, the file gets its old mode back. The owner can read and write while the content goes in, so modes like 0444 or 0200 work.
+  - Each mode must be an int from 0 to 0o777 (0x1ff). Anything else, like the string `'0644'` or a setuid bit, throws `ArgumentError` when the disk is made.
+  - Visibility does not follow symlinks. `getVisibility` and `setVisibility` on a link throw `UnsupportedOperationException`.
+- Fix: `copy()` and `move()` of a missing file on a local disk made the folders of the new path first. They now throw `FileNotFoundException` and make nothing.
 - Fix: `Storage().size()` and `Storage().lastModified()` of a missing file made Dox answer 500. They now answer 404, like `Storage().stream()`. The error is still a `FileNotFoundException`, so `on FileNotFoundException` keeps working.
 - Fix: `storeAs()` and `putRequestFileAs()` returned the raw name, not the stored key. A name like `a\b.png` is stored as `a/b.png`, and now the returned path is `/a/b.png` too.
 - Fix: `directoryExists('')` was true on a local disk, but false on an empty S3 or memory disk. The root is now always true, on every disk.

@@ -79,8 +79,9 @@ void main() async {
 
    ```dart
    RequestFile file = req.input('avatar');
-   String path = await file.store('avatars');
-   return Storage().download(path);
+   String path = await Storage().putFile('avatars', file); // new uuid name
+   await Storage().put('notes/a.txt', 'hello'); // this exact path
+   return Storage().download(path, name: 'avatar.png');
    ```
 
    Serve files with `Storage.route('files')` in a router.
@@ -91,9 +92,12 @@ Without the provider, `Storage()` has one `local` disk in the `storage` folder.
 
 - Drivers: `LocalDriver`, `S3Driver` (AWS S3, Cloudflare R2, MinIO, DigitalOcean Spaces, GCS with HMAC keys) and `MemoryDriver`.
 - `put`, `putStream`, `get`, `getStream`, `copy`, `move`, `delete`, `listAll`.
+- `files`, `allFiles`, `directories`, `deleteDirectory` and `missing`, like Laravel. `deleteDirectory` refuses the root (`''` or `/`), so a bad path can not empty a disk.
+- `Storage().put(path, contents)` writes to that exact path. `putFile(folder, file)` stores with a new uuid file name, and `putFileAs(folder, file, name)` with your name.
 - `append`, `prepend`, `size`, `lastModified`, `makeDirectory` and `directoryExists`. `makeDirectory` does nothing on any disk that is not local (S3, memory, custom drivers), because they have no real folders. `directoryExists('')` (the root) is always true.
 - Signed download URLs, and signed upload URLs on S3. A local signed URL only works on the route of its own disk.
 - Opt-in atomic local writes (`atomicWrites: true`). A failed upload never leaves a partial file.
+- Opt-in local file modes (`permissions: true`). Then visibility is the file mode, like Laravel: public file 0644, private file 0600, public folder 0755, private folder 0700. The mode is set before the content is written. An overwrite, `append` and `prepend` keep the mode of the file, unless the write gives a visibility. A copy gets the write visibility, or the mode of the source, and goes through a temp file, so it never empties its own source. Each mode must be an int from 0 to 0o777, or `ArgumentError` is thrown. New folders get the folder mode. Visibility does not follow symlinks. It does nothing on Windows.
 - Big streams go up as a multipart upload. Only one part is in memory at a time.
 - Keys are checked. `..`, absolute paths and null bytes throw `InvalidKeyException`.
 - `file.storeAs(folder, name)` uses your name. Do not pass the raw client file name to `storeAs`. Make your own name, like `user-1.png`.

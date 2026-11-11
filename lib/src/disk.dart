@@ -186,10 +186,16 @@ class Disk {
   /// that already exists. So `append` does not make a private file public.
   /// A missing file ([old] is null) uses the disk defaults.
   Future<WriteOptions> _keepOptions(String key, Uint8List? old) async {
-    // ponytail: a plain local disk keeps no per-file visibility or content
-    // type, so skip the extra reads there. A subclass may override them,
-    // so only the exact LocalDriver type is skipped.
-    if (old == null || driver.runtimeType == LocalDriver) {
+    // ponytail: a plain local disk keeps no per-file content type. With
+    // `permissions` on, a write with no visibility keeps the real file
+    // mode by itself, and a visibility here could change a custom mode
+    // like 0640. So skip the extra reads there. A subclass may override
+    // them, so with `permissions` off only the exact LocalDriver type is
+    // skipped.
+    DriverContract target = driver;
+    if (old == null ||
+        target.runtimeType == LocalDriver ||
+        (target is LocalDriver && target.config.permissions != null)) {
       return const WriteOptions();
     }
     try {
@@ -279,6 +285,59 @@ class Disk {
     } catch (error, stack) {
       _fail(error, stack, p);
     }
+  }
+
+  /// Delete a folder and every file under it, like Laravel
+  /// `deleteDirectory`. A missing folder is not an error.
+  /// The root (`''`, `/` or `.`) throws [InvalidKeyException], so a bad
+  /// path can not empty the whole disk. Use [deleteAll] for that.
+  Future<void> deleteDirectory(String path) async {
+    String p = normalizer.key(path);
+    await deleteAll(p);
+  }
+
+  /// True when the file does not exist. The opposite of [exists].
+  Future<bool> missing(String key) async {
+    return !await exists(key);
+  }
+
+  /// Keys of the files directly in [path], like Laravel `files`.
+  /// Files in sub-folders are not in the list. Use [allFiles] for them.
+  Future<List<String>> files([String path = '']) {
+    return _keys(path, recursive: false, folders: false);
+  }
+
+  /// Keys of every file under [path], in all sub-folders too.
+  Future<List<String>> allFiles([String path = '']) {
+    return _keys(path, recursive: true, folders: false);
+  }
+
+  /// Keys of the folders directly in [path], like Laravel `directories`.
+  Future<List<String>> directories([String path = '']) {
+    return _keys(path, recursive: false, folders: true);
+  }
+
+  /// Every page of [listAll], as keys of one entry type.
+  Future<List<String>> _keys(
+    String path, {
+    required bool recursive,
+    required bool folders,
+  }) async {
+    List<String> keys = <String>[];
+    String? token;
+    do {
+      ListResult result = await listAll(
+        path,
+        ListOptions(recursive: recursive, paginationToken: token),
+      );
+      for (DriveEntry entry in result.objects) {
+        if ((entry is DriveDirectory) == folders) {
+          keys.add(entry.key);
+        }
+      }
+      token = result.paginationToken;
+    } while (token != null);
+    return keys;
   }
 
   /// Copy a file to a new key.

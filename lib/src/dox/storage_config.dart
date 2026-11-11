@@ -78,6 +78,7 @@ class StorageDiskFactory {
             urlBase: _text(options['url']),
             appKey: _text(options['app_key']) ?? _text(appKey),
             visibility: _visibility(options['visibility'], Visibility.public),
+            permissions: _permissions(options['permissions']),
           ),
         );
       case 's3':
@@ -117,6 +118,41 @@ class StorageDiskFactory {
   String? _text(Object? value) {
     if (value is! String || value.isEmpty) return null;
     return value;
+  }
+
+  /// `true` turns on the Laravel modes. A map in the Laravel shape,
+  /// `{'file': {'public': 0x1a4, 'private': 0x180}, 'dir': {...}}`,
+  /// changes them. Anything else leaves it off.
+  LocalPermissions? _permissions(Object? value) {
+    if (value == true) return const LocalPermissions();
+    if (value is! Map) return null;
+    const LocalPermissions base = LocalPermissions();
+    Object? file = value['file'];
+    Object? dir = value['dir'];
+    LocalPermissions modes = LocalPermissions(
+      filePublic: _mode(file, 'public', base.filePublic),
+      filePrivate: _mode(file, 'private', base.filePrivate),
+      dirPublic: _mode(dir, 'public', base.dirPublic),
+      dirPrivate: _mode(dir, 'private', base.dirPrivate),
+    );
+    modes.check();
+    return modes;
+  }
+
+  /// A mode from the `permissions` map. A value that is not an int, like
+  /// the string `'0644'`, throws [ArgumentError]. The range (0 to 0o777)
+  /// is checked by [LocalPermissions.check].
+  int _mode(Object? group, String name, int fallback) {
+    if (group is! Map || !group.containsKey(name)) return fallback;
+    Object? mode = group[name];
+    if (mode is! int) {
+      throw ArgumentError.value(
+        mode,
+        'permissions',
+        'a mode must be an int, like 0x1a4 for 0644',
+      );
+    }
+    return mode;
   }
 
   Visibility _visibility(Object? value, Visibility fallback) {
