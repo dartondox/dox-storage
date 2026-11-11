@@ -50,7 +50,8 @@ class LocalDriverConfig {
   ///
   /// A copy is written to a temp file in the same folder, then renamed.
   /// So a copy can never empty its own source, also through a symlink, a
-  /// hard link or another case of the name. Like [atomicWrites], the
+  /// hard link or another case of the name. `listAll` hides the temp
+  /// file, like with [atomicWrites]. Like [atomicWrites], the
   /// rename replaces a symlink or hard link at the new path. The copy
   /// gets the mode of the write visibility, or else the mode of the
   /// source. `move` keeps the mode of the source, unless a write
@@ -598,10 +599,11 @@ class LocalDriver implements DriverContract {
   }
 
   /// True for a temp file of [_tempFile]. A crash can leave one behind.
-  /// Only checked with [LocalDriverConfig.atomicWrites], so other disks
-  /// list every file like 3.0.1.
+  /// Only checked with [LocalDriverConfig.atomicWrites] or
+  /// [LocalDriverConfig.permissions] (a copy uses a temp file there), so
+  /// other disks list every file like 3.0.1.
   bool _isTempFile(String path) {
-    return config.atomicWrites &&
+    return (config.atomicWrites || _modes != null) &&
         p.basename(path).endsWith(StorageConstants.localTempSuffix);
   }
 

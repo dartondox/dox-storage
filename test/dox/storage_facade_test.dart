@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dox_core/dox_core.dart';
 import 'package:dox_storage/dox_storage.dart';
@@ -212,6 +213,38 @@ void main() {
       expect(await Storage().exists('keep/a.txt'), isTrue);
       await Storage().deleteDirectory('keep');
     });
+
+    test('a RequestFile on a disk with permissions gets the mode', () async {
+      Directory dir = await Directory.systemTemp.createTemp('dox_rf_');
+      try {
+        Storage storage = Storage(
+          manager: DriveManager(
+            defaultDisk: 'local',
+            disks: <String, DriverContract>{
+              'local': LocalDriver(
+                LocalDriverConfig(
+                  root: dir.path,
+                  visibility: Visibility.private,
+                  permissions: const LocalPermissions(),
+                ),
+              ),
+            },
+          ),
+        );
+        RequestFile file = RequestFile(
+          filename: 'a.txt',
+          filetype: 'text/plain',
+          length: 1,
+          bytes: Uint8List.fromList(<int>[97]),
+        );
+        String path = await storage.putFile('up', file);
+        File saved = File('${dir.path}$path');
+        expect(saved.readAsStringSync(), 'a');
+        expect((saved.statSync().mode & 0x1ff).toRadixString(8), '600');
+      } finally {
+        await dir.delete(recursive: true);
+      }
+    }, testOn: '!windows');
 
     test('a missing file in copy is 404', () async {
       http.Response res = await http.get(Uri.parse('$baseUrl/copy-missing'));

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:crypto/crypto.dart';
 import 'package:dox_storage/dox_storage.dart';
@@ -421,11 +422,13 @@ void main() {
         File fake = File(p.join(bin.path, 'chmod'))
           ..writeAsStringSync('#!/bin/sh\nexit 1\n');
         Process.runSync('chmod', <String>['755', fake.path]);
+        Uri config = (await Isolate.packageConfig)!;
+        String package = p.dirname(p.dirname(config.toFilePath()));
         ProcessResult result = await Process.run(
           Platform.resolvedExecutable,
           <String>[
-            '--packages=${p.join('.dart_tool', 'package_config.json')}',
-            p.join('test', 'support', 'failing_chmod_main.dart'),
+            '--packages=${config.toFilePath()}',
+            p.join(package, 'test', 'support', 'failing_chmod_main.dart'),
             dir.path,
           ],
           environment: <String, String>{'PATH': bin.path},
@@ -456,6 +459,25 @@ void main() {
         await disk.copy('c.txt', 'C.TXT');
         expect(await disk.getString('c.txt'), 'source');
       }
+    });
+
+    test('a left over temp file is not listed', () async {
+      Disk disk = modes();
+      await disk.put('a.txt', 'a');
+      File(p.join(dir.path, '.a.txt.1-2.dox-upload.tmp'))
+          .writeAsStringSync('x');
+      expect(await disk.files(), <String>['a.txt']);
+      expect(await disk.allFiles(), <String>['a.txt']);
+    });
+
+    test('a copy from a folder is not found and makes no folder', () async {
+      Disk disk = modes();
+      await disk.put('src/a.txt', 'a');
+      await expectLater(
+        disk.copy('src', 'new/dest.txt'),
+        throwsA(isA<FileNotFoundException>()),
+      );
+      expect(Directory(p.join(dir.path, 'new')).existsSync(), isFalse);
     });
 
     test('a subclass of LocalDriver keeps a custom mode on append', () async {
