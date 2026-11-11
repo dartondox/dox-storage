@@ -203,6 +203,16 @@ void main() {
       expect(File('pubspec.yaml').existsSync(), isTrue);
     });
 
+    test('deleteDirectory of the root throws and keeps the files', () async {
+      await Storage().put('keep/a.txt', 'a');
+      await expectLater(
+        Storage().deleteDirectory('/'),
+        throwsA(isA<InvalidKeyException>()),
+      );
+      expect(await Storage().exists('keep/a.txt'), isTrue);
+      await Storage().deleteDirectory('keep');
+    });
+
     test('a missing file in copy is 404', () async {
       http.Response res = await http.get(Uri.parse('$baseUrl/copy-missing'));
       expect(res.statusCode, 404);

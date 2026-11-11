@@ -97,7 +97,7 @@ Without the provider, `Storage()` has one `local` disk in the `storage` folder.
 - `append`, `prepend`, `size`, `lastModified`, `makeDirectory` and `directoryExists`. `makeDirectory` does nothing on any disk that is not local (S3, memory, custom drivers), because they have no real folders. `directoryExists('')` (the root) is always true.
 - Signed download URLs, and signed upload URLs on S3. A local signed URL only works on the route of its own disk.
 - Opt-in atomic local writes (`atomicWrites: true`). A failed upload never leaves a partial file.
-- Opt-in local file modes (`permissions: true`). Then visibility is the file mode, like Laravel: public file 0644, private file 0600, public folder 0755, private folder 0700. It does nothing on Windows.
+- Opt-in local file modes (`permissions: true`). Then visibility is the file mode, like Laravel: public file 0644, private file 0600, public folder 0755, private folder 0700. The mode is set before the content is written. An overwrite keeps the mode of the file, unless the write gives a visibility. New folders get the folder mode. Visibility does not follow symlinks. It does nothing on Windows.
 - Big streams go up as a multipart upload. Only one part is in memory at a time.
 - Keys are checked. `..`, absolute paths and null bytes throw `InvalidKeyException`.
 - `file.storeAs(folder, name)` uses your name. Do not pass the raw client file name to `storeAs`. Make your own name, like `user-1.png`.

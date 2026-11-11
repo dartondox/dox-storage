@@ -38,10 +38,21 @@ class LocalDriverConfig {
   ///
   /// When set, visibility is the file mode, like Laravel: `setVisibility`
   /// runs `chmod` on a file or folder, and `getVisibility` reads the mode.
-  /// `put` and `putStream` set the mode of the file from the write
-  /// visibility, or from [visibility]. `copy` and `move` keep the mode,
-  /// unless a write visibility is given. A mode equal to the private mode
-  /// is private; any other mode is public, like Laravel.
+  /// A mode equal to the private mode is private; any other mode is
+  /// public, like Laravel.
+  ///
+  /// `put` and `putStream` set the mode before the content is written, so
+  /// a private file is never open to others. A new file gets the write
+  /// visibility, or [visibility]. A file that is there keeps its mode,
+  /// unless the write gives a visibility. This is safer than Laravel: an
+  /// overwrite does not make a private file public. `copy` and `move` keep
+  /// the mode of the source, unless a write visibility is given. Folders
+  /// that a write makes get the folder mode of the write visibility.
+  /// Folders that were there before keep their mode.
+  ///
+  /// Visibility does not follow symlinks: `getVisibility` and
+  /// `setVisibility` on a link throw [UnsupportedOperationException].
+  /// When `chmod` fails, a file that the write made is deleted.
   ///
   /// Windows has no `chmod`. There it stays off, even when set.
   final LocalPermissions? permissions;
@@ -202,7 +213,9 @@ class LocalDriver implements DriverContract {
       }
       return config.visibility;
     }
-    FileStat stat = await FileStat.stat(pathFor(key));
+    String path = pathFor(key);
+    await _noLink(key, path);
+    FileStat stat = await FileStat.stat(path);
     bool folder = stat.type == FileSystemEntityType.directory;
     if (!folder && stat.type != FileSystemEntityType.file) {
       throw FileNotFoundException(key);
@@ -227,30 +240,80 @@ class LocalDriver implements DriverContract {
   }
 
   /// Set the mode of a file or folder for [visibility]. Does nothing when
-  /// [LocalDriverConfig.permissions] is off.
+  /// [LocalDriverConfig.permissions] is off. A symlink throws
+  /// [UnsupportedOperationException], so a link can not change the mode
+  /// of a file outside the root.
   Future<void> _chmod(String key, Visibility visibility) async {
     LocalPermissions? modes = _modes;
     if (modes == null) {
       return;
     }
     String path = pathFor(key);
+    await _noLink(key, path);
     FileSystemEntityType type = await FileSystemEntity.type(path);
     bool folder = type == FileSystemEntityType.directory;
     if (!folder && type != FileSystemEntityType.file) {
       throw FileNotFoundException(key);
     }
-    bool public = visibility == Visibility.public;
     int mode = folder
-        ? (public ? modes.dirPublic : modes.dirPrivate)
-        : (public ? modes.filePublic : modes.filePrivate);
+        ? _dirMode(modes, visibility)
+        : _fileMode(modes, visibility);
+    await _chmodPaths(key, <String>[path], mode);
+  }
+
+  /// Throw [UnsupportedOperationException] when [path] is a symlink.
+  /// The mode of a link is the mode of its target, and the target can be
+  /// outside the root. So visibility does not follow links.
+  Future<void> _noLink(String key, String path) async {
+    if (await FileSystemEntity.isLink(path)) {
+      throw UnsupportedOperationException(
+        key,
+        'visibility of a symlink is not supported',
+      );
+    }
+  }
+
+  int _fileMode(LocalPermissions modes, Visibility visibility) {
+    return visibility == Visibility.public
+        ? modes.filePublic
+        : modes.filePrivate;
+  }
+
+  int _dirMode(LocalPermissions modes, Visibility visibility) {
+    return visibility == Visibility.public ? modes.dirPublic : modes.dirPrivate;
+  }
+
+  /// Run `chmod` on [paths].
+  Future<void> _chmodPaths(String key, List<String> paths, int mode) async {
     // ponytail: dart:io has no chmod, so this starts a process. Only with
     // `permissions` on. Use FFI if many writes per second matter.
     ProcessResult result = await Process.run('chmod', <String>[
       mode.toRadixString(8),
-      path,
+      ...paths,
     ]);
     if (result.exitCode != 0) {
       throw PermissionDeniedException(key, cause: result.stderr);
+    }
+  }
+
+  /// Make the parent folders of [file], with `permissions` on. The new
+  /// folders get the folder mode of [visibility]. Folders that were there
+  /// before, and the root, keep their mode.
+  Future<void> _makeParents(
+    String key,
+    File file,
+    LocalPermissions modes,
+    Visibility visibility,
+  ) async {
+    List<String> created = <String>[];
+    Directory folder = file.parent;
+    while (folder.path != root && !await folder.exists()) {
+      created.add(folder.path);
+      folder = folder.parent;
+    }
+    await _io(key, file.parent.create(recursive: true));
+    if (created.isNotEmpty) {
+      await _chmodPaths(key, created, _dirMode(modes, visibility));
     }
   }
 
@@ -291,6 +354,10 @@ class LocalDriver implements DriverContract {
 
   @override
   Future<void> put(String key, Uint8List contents, WriteOptions options) async {
+    LocalPermissions? modes = _modes;
+    if (modes != null) {
+      return _putWithModes(key, contents, options, modes);
+    }
     File file = await _writableFile(key);
     if (!config.atomicWrites) {
       await _io(key, file.writeAsBytes(contents, flush: true));
@@ -298,7 +365,6 @@ class LocalDriver implements DriverContract {
       File temp = _tempFile(file);
       await _replace(key, file, temp, temp.writeAsBytes(contents, flush: true));
     }
-    await _chmod(key, options.visibility ?? config.visibility);
   }
 
   @override
@@ -307,6 +373,10 @@ class LocalDriver implements DriverContract {
     Stream<List<int>> contents,
     WriteOptions options,
   ) async {
+    LocalPermissions? modes = _modes;
+    if (modes != null) {
+      return _putWithModes(key, contents, options, modes);
+    }
     File file = await _writableFile(key);
     if (!config.atomicWrites) {
       await _writeStream(file, contents);
@@ -314,7 +384,87 @@ class LocalDriver implements DriverContract {
       File temp = _tempFile(file);
       await _replace(key, file, temp, _writeStream(temp, contents));
     }
-    await _chmod(key, options.visibility ?? config.visibility);
+  }
+
+  /// [put] and [putStream] with `permissions` on. The mode is set before
+  /// the content is there, so a private file is never open to others.
+  /// The mode comes from the write visibility. Without one, a file that
+  /// is there keeps its mode, and a new file gets the disk visibility.
+  Future<void> _putWithModes(
+    String key,
+    Object contents,
+    WriteOptions options,
+    LocalPermissions modes,
+  ) async {
+    Visibility? visibility = options.visibility;
+    File file = File(pathFor(key));
+    await _makeParents(key, file, modes, visibility ?? config.visibility);
+    FileStat stat = await file.stat();
+    int? oldMode = stat.type == FileSystemEntityType.file
+        ? stat.mode & 0x1ff
+        : null;
+    int mode = visibility != null
+        ? _fileMode(modes, visibility)
+        : oldMode ?? _fileMode(modes, config.visibility);
+    if (config.atomicWrites) {
+      File temp = _tempFile(file);
+      await _replace(key, file, temp, _writeNew(key, temp, contents, mode));
+      return;
+    }
+    if (oldMode == null) {
+      await _noLink(key, file.path);
+      await _writeNew(key, file, contents, mode);
+      return;
+    }
+    if (mode == oldMode) {
+      await _io(key, _writeTo(file, contents));
+      return;
+    }
+    // Overwrite with a new mode. First keep only the bits that both modes
+    // have, then write, then set the new mode. So no one can read the old
+    // or the new content who should not.
+    await _noLink(key, file.path);
+    int both = mode & oldMode;
+    if (both != oldMode) {
+      await _chmodPaths(key, <String>[file.path], both);
+    }
+    await _io(key, _writeTo(file, contents));
+    if (both != mode) {
+      await _chmodPaths(key, <String>[file.path], mode);
+    }
+  }
+
+  /// Make [file] as an empty file with [mode], then write [contents].
+  /// When `chmod` fails, the new file is deleted.
+  Future<void> _writeNew(
+    String key,
+    File file,
+    Object contents,
+    int mode,
+  ) async {
+    await _io(key, file.writeAsBytes(const <int>[], flush: true));
+    try {
+      await _chmodPaths(key, <String>[file.path], mode);
+    } catch (_) {
+      await _deleteQuietly(file);
+      rethrow;
+    }
+    await _io(key, _writeTo(file, contents));
+  }
+
+  Future<void> _writeTo(File file, Object contents) {
+    if (contents is Uint8List) {
+      return file.writeAsBytes(contents, flush: true);
+    }
+    return _writeStream(file, contents as Stream<List<int>>);
+  }
+
+  Future<void> _deleteQuietly(File file) async {
+    try {
+      await file.delete();
+    } on FileSystemException {
+      // already gone or locked: keep the first error
+    }
   }
 
   Future<void> _writeStream(File file, Stream<List<int>> contents) async {
@@ -354,11 +504,7 @@ class LocalDriver implements DriverContract {
       await _io(key, write);
       await _io(key, temp.rename(file.path));
     } catch (_) {
-      try {
-        await temp.delete();
-      } on FileSystemException {
-        // already gone or locked: keep the first error
-      }
+      await _deleteQuietly(temp);
       rethrow;
     }
   }
@@ -377,13 +523,22 @@ class LocalDriver implements DriverContract {
     String destination,
     WriteOptions options,
   ) async {
-    String from = pathFor(source);
-    await _writableFile(destination);
-    await _io(source, File(from).copy(pathFor(destination)));
+    String from = await _source(source);
+    String to = pathFor(destination);
+    bool existed = await _prepareDestination(destination, options);
+    await _io(source, File(from).copy(to));
     // The copy keeps the mode of the source, unless a visibility is given.
     Visibility? visibility = options.visibility;
-    if (visibility != null) {
+    if (visibility == null) {
+      return;
+    }
+    try {
       await _chmod(destination, visibility);
+    } catch (_) {
+      if (!existed) {
+        await _deleteQuietly(File(to));
+      }
+      rethrow;
     }
   }
 
@@ -393,13 +548,45 @@ class LocalDriver implements DriverContract {
     String destination,
     WriteOptions options,
   ) async {
-    String from = pathFor(source);
-    await _writableFile(destination);
-    await _io(source, File(from).rename(pathFor(destination)));
+    String from = await _source(source);
+    String to = pathFor(destination);
+    await _prepareDestination(destination, options);
+    await _io(source, File(from).rename(to));
     Visibility? visibility = options.visibility;
-    if (visibility != null) {
-      await _chmod(destination, visibility);
+    if (visibility == null) {
+      return;
     }
+    try {
+      await _chmod(destination, visibility);
+    } catch (_) {
+      // Put the file back, so a failed move does not lose it.
+      await _io(source, File(to).rename(from));
+      rethrow;
+    }
+  }
+
+  /// Path of the source of [copy] or [move]. A missing source throws
+  /// [FileNotFoundException] before any folder is made.
+  Future<String> _source(String key) async {
+    String path = pathFor(key);
+    if (await FileSystemEntity.type(path) == FileSystemEntityType.notFound) {
+      throw FileNotFoundException(key);
+    }
+    return path;
+  }
+
+  /// Make the parent folders of [key] for [copy] and [move]. Returns true
+  /// when a file is there already. Only used with `permissions` on.
+  Future<bool> _prepareDestination(String key, WriteOptions options) async {
+    LocalPermissions? modes = _modes;
+    if (modes == null) {
+      await _writableFile(key);
+      return false;
+    }
+    File file = File(pathFor(key));
+    Visibility visibility = options.visibility ?? config.visibility;
+    await _makeParents(key, file, modes, visibility);
+    return file.exists();
   }
 
   @override

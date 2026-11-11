@@ -175,6 +175,161 @@ void main() {
       ) as LocalDriver;
       expect(off.config.permissions, isNull);
     });
+
+    /// A stream that, before its first chunk, saves the mode of the file
+    /// that is being written: [key] itself, or the atomic temp file.
+    Stream<List<int>> spy(String key, List<String> seen) async* {
+      List<String> temps = dir
+          .listSync()
+          .map((FileSystemEntity e) => p.basename(e.path))
+          .where((String n) => n.endsWith('.dox-upload.tmp'))
+          .toList();
+      for (String name in temps.isEmpty ? <String>[key] : temps) {
+        seen.add(mode(name));
+      }
+      yield utf8.encode('secret');
+    }
+
+    for (bool atomic in <bool>[false, true]) {
+      test('the mode is set before the content (atomic: $atomic)', () async {
+        Disk disk = Disk(
+          LocalDriver(
+            LocalDriverConfig(
+              root: dir.path,
+              atomicWrites: atomic,
+              visibility: Visibility.private,
+              permissions: const LocalPermissions(),
+            ),
+          ),
+        );
+        List<String> seen = <String>[];
+        await disk.putStream('new.txt', spy('new.txt', seen));
+        expect(seen, <String>['600']);
+        expect(mode('new.txt'), '600');
+
+        // overwrite a public file as private: never public with new content
+        await disk.put(
+          'old.txt',
+          'old',
+          options: const WriteOptions(visibility: Visibility.public),
+        );
+        seen.clear();
+        await disk.putStream(
+          'old.txt',
+          spy('old.txt', seen),
+          options: const WriteOptions(visibility: Visibility.private),
+        );
+        expect(seen.last, '600');
+        expect(mode('old.txt'), '600');
+        expect(await disk.getString('old.txt'), 'secret');
+      });
+
+      test('a failed chmod leaves no new file (atomic: $atomic)', () async {
+        Disk disk = Disk(
+          LocalDriver(
+            LocalDriverConfig(
+              root: dir.path,
+              atomicWrites: atomic,
+              // not a valid mode, so chmod fails
+              permissions: const LocalPermissions(filePublic: 0x10000),
+            ),
+          ),
+        );
+        await expectLater(
+          disk.put('a.txt', 'a'),
+          throwsA(isA<PermissionDeniedException>()),
+        );
+        await expectLater(
+          disk.putStream('b.txt', Stream<List<int>>.value(<int>[1])),
+          throwsA(isA<PermissionDeniedException>()),
+        );
+        expect(dir.listSync(), isEmpty);
+      });
+
+      test('an overwrite keeps the mode (atomic: $atomic)', () async {
+        Disk disk = Disk(
+          LocalDriver(
+            LocalDriverConfig(
+              root: dir.path,
+              atomicWrites: atomic,
+              permissions: const LocalPermissions(),
+            ),
+          ),
+        );
+        await disk.put(
+          'a.txt',
+          'a',
+          options: const WriteOptions(visibility: Visibility.private),
+        );
+        await disk.put('a.txt', 'b');
+        expect(mode('a.txt'), '600');
+        await disk.putStream('a.txt', Stream<List<int>>.value(<int>[1]));
+        expect(mode('a.txt'), '600');
+        await disk.put(
+          'a.txt',
+          'c',
+          options: const WriteOptions(visibility: Visibility.public),
+        );
+        expect(mode('a.txt'), '644');
+        await disk.put('new.txt', 'n');
+        expect(mode('new.txt'), '644');
+      });
+    }
+
+    test('visibility does not follow a symlink out of the root', () async {
+      Directory outside = await Directory.systemTemp.createTemp('dox_out_');
+      try {
+        File target = File(p.join(outside.path, 'target.txt'))
+          ..writeAsStringSync('x');
+        Process.runSync('chmod', <String>['644', target.path]);
+        Link(p.join(dir.path, 'link.txt')).createSync(target.path);
+        Disk disk = modes();
+        await expectLater(
+          disk.setVisibility('link.txt', Visibility.private),
+          throwsA(isA<UnsupportedOperationException>()),
+        );
+        await expectLater(
+          disk.getVisibility('link.txt'),
+          throwsA(isA<UnsupportedOperationException>()),
+        );
+        await expectLater(
+          disk.put(
+            'link.txt',
+            'y',
+            options: const WriteOptions(visibility: Visibility.private),
+          ),
+          throwsA(isA<UnsupportedOperationException>()),
+        );
+        expect(target.statSync().mode & 0x1ff, 0x1a4);
+        expect(target.readAsStringSync(), 'x');
+      } finally {
+        await outside.delete(recursive: true);
+      }
+    });
+
+    test('new folders get the folder mode, old ones keep theirs', () async {
+      Process.runSync('chmod', <String>['750', dir.path]);
+      Directory(p.join(dir.path, 'old')).createSync();
+      Process.runSync('chmod', <String>['711', p.join(dir.path, 'old')]);
+      Disk disk = modes();
+      await disk.put(
+        'old/a/b/c.txt',
+        'c',
+        options: const WriteOptions(visibility: Visibility.private),
+      );
+      expect(mode('old'), '711');
+      expect(mode('old/a'), '700');
+      expect(mode('old/a/b'), '700');
+      await disk.putStream('pub/d.txt', Stream<List<int>>.value(<int>[1]));
+      expect(mode('pub'), '755');
+      await disk.copy(
+        'pub/d.txt',
+        'cp/d.txt',
+        options: const WriteOptions(visibility: Visibility.private),
+      );
+      expect(mode('cp'), '700');
+      expect(mode('.'), '750', reason: 'the root keeps its mode');
+    });
   }, testOn: '!windows');
 
   group('LocalDriver', () {
@@ -222,6 +377,18 @@ void main() {
         throwsA(isA<InvalidKeyException>()),
       );
       expect(outside.existsSync(), isFalse);
+    });
+
+    test('copy and move of a missing file make no folders', () async {
+      await expectLater(
+        disk.copy('nope.txt', 'a/b/c.txt'),
+        throwsA(isA<FileNotFoundException>()),
+      );
+      await expectLater(
+        disk.move('nope.txt', 'd/e.txt'),
+        throwsA(isA<FileNotFoundException>()),
+      );
+      expect(await disk.directories(), isEmpty);
     });
 
     test('makeDirectory makes the folder and its parents', () async {

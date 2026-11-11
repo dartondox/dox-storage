@@ -121,11 +121,10 @@ class Storage {
     Disk target = use();
     String clean = target.normalizer.key(key);
     DriverContract driver = target.driver;
-    if (driver is LocalDriver) {
+    // With `permissions` on, the stream write sets the mode before the
+    // content is there. A rename would bring the mode of the temp file.
+    if (driver is LocalDriver && driver.config.permissions == null) {
       await requestFile.moveTo(driver.pathFor(clean));
-      if (driver.config.permissions != null) {
-        await target.setVisibility(clean, driver.config.visibility);
-      }
     } else {
       await target.putStream(clean, requestFile.stream());
     }
@@ -222,8 +221,9 @@ class Storage {
   }
 
   /// copy a file to [to]. an old file at [to] is replaced. on S3 the copy
-  /// is done by S3, the bytes do not pass through the app. a missing file
-  /// throws a [FileNotFoundException] that Dox answers with 404.
+  /// is done by S3, the bytes do not pass through the app. an S3 copy
+  /// works for files up to 5 GiB. a missing file throws a
+  /// [FileNotFoundException] that Dox answers with 404.
   /// ```
   /// await Storage().copy('avatars/a.png', 'backup/a.png');
   /// ```
