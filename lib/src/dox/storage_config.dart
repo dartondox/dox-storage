@@ -120,7 +120,8 @@ class StorageDiskFactory {
     return value;
   }
 
-  /// `true` turns on the Laravel modes. A map in the Laravel shape,
+  /// `true` turns on the file modes (public 0644,
+  /// private 0600). A map in this shape,
   /// `{'file': {'public': 0x1a4, 'private': 0x180}, 'dir': {...}}`,
   /// changes them. Anything else leaves it off.
   LocalPermissions? _permissions(Object? value) {

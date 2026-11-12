@@ -101,8 +101,8 @@ class Storage {
     return _storeRequestFile(_newKey(folder, extension), requestFile);
   }
 
-  /// store the request file into storage with the given [name], like
-  /// Laravel `putFileAs`. an old file with the same name is replaced.
+  /// store the request file into storage with the given [name].
+  /// an old file with the same name is replaced.
   /// do not pass the raw client file name. make your own name, like
   /// `u1.png`. the returned path is the cleaned key (`a\b.png` gives
   /// `/a/b.png`), and a name like `../x.png` throws [InvalidKeyException].
@@ -136,8 +136,8 @@ class Storage {
   /// bytes (`List<int>`) or a [RequestFile]. the extension is [extension],
   /// or it is guessed from the bytes.
   ///
-  /// with `exact: true`, [contents] is written to exactly [path], like
-  /// Laravel `Storage::put`. an old file at [path] is replaced. [contents]
+  /// with `exact: true`, [contents] is written to exactly [path].
+  /// an old file at [path] is replaced. [contents]
   /// can be a `String` (saved as UTF-8), a `List<int>` or a
   /// `Stream<List<int>>`. the returned path is the cleaned key. do not
   /// pass [extension] with `exact: true`.
@@ -177,7 +177,7 @@ class Storage {
   }
 
   /// store a file in [folder] with a new uuid file name and return its
-  /// path, like Laravel `putFile`. [file] is a [RequestFile] or the bytes
+  /// path. [file] is a [RequestFile] or the bytes
   /// (`List<int>`). [put] without `exact: true` does the same.
   ///
   /// for bytes, the extension is [extension], or it is guessed from the
@@ -208,8 +208,8 @@ class Storage {
     return '/$key';
   }
 
-  /// store a file in [folder] with the given [name] and return its path,
-  /// like Laravel `putFileAs`. an old file with the same name is replaced.
+  /// store a file in [folder] with the given [name] and return its path.
+  /// an old file with the same name is replaced.
   /// [file] is a [RequestFile], or anything `put(exact: true)` takes.
   ///
   /// do not pass the raw client file name. make your own name, like
@@ -273,7 +273,7 @@ class Storage {
     return _http404(use().move(_key(from), _key(to)));
   }
 
-  /// paths of the files directly in [folder], like Laravel `files`.
+  /// paths of the files directly in [folder].
   /// files in sub-folders are not in the list; see [allFiles].
   /// each path starts with `/`, like the path of [putFile].
   /// ```
@@ -288,8 +288,8 @@ class Storage {
     return _paths(await use().allFiles(_key(folder)));
   }
 
-  /// paths of the folders directly in [folder], like Laravel
-  /// `directories`. on S3 and memory disks a folder is there when a file
+  /// paths of the folders directly in [folder].
+  /// on S3 and memory disks a folder is there when a file
   /// is under it.
   Future<List<String>> directories([String folder = '']) async {
     return _paths(await use().directories(_key(folder)));
@@ -389,7 +389,7 @@ class Storage {
     );
   }
 
-  /// the same as [signedUrl]. Laravel calls it `temporaryUrl`.
+  /// the same as [signedUrl].
   Future<String> temporaryUrl(
     String filename, {
     Duration expiresIn = const Duration(minutes: 30),
@@ -431,8 +431,8 @@ class Storage {
   }
 
   /// return the file as a download (Content-Disposition: attachment).
-  /// [name] is the file name the browser saves, like Laravel
-  /// `download($path, $name)`. without it, the last part of the path is
+  /// [name] is the file name the browser saves.
+  /// without it, the last part of the path is
   /// used. any name is safe: quotes are escaped, control characters
   /// (like a new line) become `_`, and a non-ASCII name is also sent as
   /// `filename*=UTF-8''...`.

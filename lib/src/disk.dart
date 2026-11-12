@@ -247,7 +247,7 @@ class Disk {
     }
   }
 
-  /// Test helper, like Laravel `Storage::assertExists`. Throws a
+  /// Test helper. Throws a
   /// [StateError] when the file does not exist.
   /// ```
   /// Disk fake = drive.fake('s3');
@@ -259,7 +259,7 @@ class Disk {
     }
   }
 
-  /// Test helper, like Laravel `Storage::assertMissing`. Throws a
+  /// Test helper. Throws a
   /// [StateError] when the file exists.
   Future<void> assertMissing(String key) async {
     if (await exists(key)) {
@@ -287,8 +287,8 @@ class Disk {
     }
   }
 
-  /// Delete a folder and every file under it, like Laravel
-  /// `deleteDirectory`. A missing folder is not an error.
+  /// Delete a folder and every file under it.
+  /// A missing folder is not an error.
   /// The root (`''`, `/` or `.`) throws [InvalidKeyException], so a bad
   /// path can not empty the whole disk. Use [deleteAll] for that.
   Future<void> deleteDirectory(String path) async {
@@ -301,7 +301,7 @@ class Disk {
     return !await exists(key);
   }
 
-  /// Keys of the files directly in [path], like Laravel `files`.
+  /// Keys of the files directly in [path].
   /// Files in sub-folders are not in the list. Use [allFiles] for them.
   Future<List<String>> files([String path = '']) {
     return _keys(path, recursive: false, folders: false);
@@ -312,7 +312,7 @@ class Disk {
     return _keys(path, recursive: true, folders: false);
   }
 
-  /// Keys of the folders directly in [path], like Laravel `directories`.
+  /// Keys of the folders directly in [path].
   Future<List<String>> directories([String path = '']) {
     return _keys(path, recursive: false, folders: true);
   }
