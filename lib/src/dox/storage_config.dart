@@ -120,8 +120,8 @@ class StorageDiskFactory {
     return value;
   }
 
-  /// `true` turns on the file modes (public 0644,
-  /// private 0600). A map in this shape,
+  /// `true` turns on file modes (public file 0644, private file
+  /// 0600, public folder 0755, private folder 0700). A map in this shape,
   /// `{'file': {'public': 0x1a4, 'private': 0x180}, 'dir': {...}}`,
   /// changes them. Anything else leaves it off.
   LocalPermissions? _permissions(Object? value) {
