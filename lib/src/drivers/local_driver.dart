@@ -22,7 +22,7 @@ class LocalDriverConfig {
 
   /// Public URL base, for example `https://app.test/uploads`.
   /// Needed for `getSignedUrl`. When null, `getUrl` gives
-  /// `/storage/<key>`, like Laravel.
+  /// `/storage/<key>`.
   final String? urlBase;
 
   /// Secret for signed URLs (use your APP_KEY). Needed for `getSignedUrl`.
@@ -36,15 +36,15 @@ class LocalDriverConfig {
   /// Off (null) by default: `setVisibility` does nothing and file modes
   /// are not changed.
   ///
-  /// When set, visibility is the file mode, like Laravel: `setVisibility`
+  /// When set, visibility is the file mode: `setVisibility`
   /// runs `chmod` on a file or folder, and `getVisibility` reads the mode.
   /// A mode equal to the private mode is private; any other mode is
-  /// public, like Laravel.
+  /// public.
   ///
   /// `put` and `putStream` set the mode before the content is written, so
   /// a private file is never open to others. A new file gets the write
   /// visibility, or [visibility]. A file that is there keeps its mode,
-  /// unless the write gives a visibility. This is safer than Laravel: an
+  /// unless the write gives a visibility. An
   /// overwrite does not make a private file public. `append` and `prepend`
   /// keep the exact mode, also a custom one like 0640.
   ///
@@ -101,7 +101,7 @@ class LocalDriverConfig {
 }
 
 /// File and folder modes for [LocalDriverConfig.permissions].
-/// The defaults are the Laravel ones: public file 0644, private file 0600,
+/// The defaults are: public file 0644, private file 0600,
 /// public folder 0755, private folder 0700. Dart has no octal numbers, so
 /// they are written in hex here.
 ///
