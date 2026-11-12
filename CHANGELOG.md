@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Ships an AI agent skill (dox-storage-guide). Install it in your app with `dart run skills@ get`.
 - Requires Dart 3.14 or newer.
 - New: `Storage().put(path, contents, exact: true)` writes to that exact path, like Laravel `Storage::put`. An old file at the path is replaced. `contents` is a `String`, a `List<int>` or a `Stream<List<int>>`. It returns the path. Without `exact: true`, `put` works as it did: the first argument is a folder, the file gets a new uuid name, and the path is returned.
 - New: `Storage().putFile(folder, file)` stores a file with a new uuid name and returns its path, like Laravel `putFile`. `Storage().putFileAs(folder, file, name)` stores it with your name, like Laravel `putFileAs`. `file` is a `RequestFile` or bytes. `file.store()` and `file.storeAs()` use them.
