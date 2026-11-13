@@ -1,5 +1,6 @@
 ## Unreleased
 
+- New: `dox storage:install [--disk=local|s3]`, run by `dox add storage`. It writes `lib/config/storage.dart`, `lib/providers/storage_provider.dart`, the `storage` folder, the `STORAGE_DISK` key and the `AppEnv` getters. `--disk=s3` adds the `s3` disk and the `AWS_*` keys. It never overwrites a file. dox_storage now depends on dox_annotation.
 - Ships an AI agent skill (dox-storage-guide). Install it in your app with `dart run skills@ get`.
 - New: `Storage().put(path, contents, exact: true)` writes to that exact path, like Laravel `Storage::put`. An old file at the path is replaced. `contents` is a `String`, a `List<int>` or a `Stream<List<int>>`. It returns the path. Without `exact: true`, `put` works as it did: the first argument is a folder, the file gets a new uuid name, and the path is returned.
 - New: `Storage().putFile(folder, file)` stores a file with a new uuid name and returns its path, like Laravel `putFile`. `Storage().putFileAs(folder, file, name)` stores it with your name, like Laravel `putFileAs`. `file` is a `RequestFile` or bytes. `file.store()` and `file.storeAs()` use them.

@@ -9,6 +9,15 @@ description: Use when you save, read, delete, list, stream, download or serve fi
 In a Dox app you use the `Storage()` facade. Outside Dox you use `DriveManager` and `Disk`.
 For routes, controllers and `RequestFile` basics, see the dox-core-guide skill.
 
+## Set up
+
+```bash
+dox add storage              # local disk (default)
+dox add storage --disk=s3    # also adds the s3 disk and the AWS_* keys
+```
+
+It writes `lib/config/storage.dart`, the provider, the `storage` folder, the `STORAGE_DISK` key and the `AppEnv` getters. It never overwrites a file, so it is safe to run twice. The steps below show the same files by hand.
+
 ## Install and register
 
 ```bash

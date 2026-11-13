@@ -9,6 +9,9 @@ environment:
 
 dependencies:
   crypto: ^3.0.7
+  # Raise to the dox_annotation release that has install.dart before
+  # releasing this package.
+  dox_annotation: ^3.1.0
   dox_core: ^3.1.0
   http: ^1.6.0
   mime: ^2.1.0
@@ -17,6 +20,11 @@ dependencies:
 dev_dependencies:
   lints: ^6.1.0
   test: ^1.33.0
+
+# The `dox` CLI finds the commands of this package here
+# (`dox storage:install`).
+dox:
+  commands: package:dox_storage/commands.dart
 
 # Public AWS example keys used by the SigV4 test vectors.
 false_secrets:
