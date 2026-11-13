@@ -1,4 +1,4 @@
-## Unreleased
+## 3.2.0
 
 - New: `dox storage:install [--disk=local|s3]`, run by `dox add storage`. It writes `lib/config/storage.dart`, `lib/providers/storage_provider.dart`, the `storage` folder, the `STORAGE_DISK` key and the `AppEnv` getters. `--disk=s3` adds the `s3` disk and the `AWS_*` keys. It never overwrites a file. dox_storage now depends on dox_annotation.
 - Ships an AI agent skill (dox-storage-guide). Install it in your app with `dart run skills@ get`.
