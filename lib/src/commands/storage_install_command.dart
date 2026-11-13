@@ -72,14 +72,12 @@ class StorageInstallCommand extends Command {
     installer.printSummary(<String>[
       if (disk == 's3')
         'Fill in AWS_BUCKET, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in '
-            '.env (and AWS_ENDPOINT for R2, MinIO or Spaces). A key that was '
-            'already there is not changed.',
+            '.env (and AWS_ENDPOINT for R2, MinIO or Spaces). Then set '
+            'STORAGE_DISK=s3. It is `local` now, so the app starts before '
+            'you fill them in.',
       if (!config.contains("'driver': '$disk'"))
         "lib/config/storage.dart has no '$disk' disk. Add one, see the "
             'file storage docs.',
-      if (disk != 'local')
-        'Check STORAGE_DISK=$disk in .env. A key that was already there is '
-            'not changed.',
       'Save a file: `await Storage().put(...)`. See the file storage docs.',
     ]);
   }
@@ -119,7 +117,7 @@ class StorageInstallCommand extends Command {
   /// the `.env` keys of [disk]
   static Map<String, String> envKeys(String disk) {
     return <String, String>{
-      'STORAGE_DISK': disk,
+      'STORAGE_DISK': 'local',
       if (disk == 's3') ...<String, String>{
         'AWS_BUCKET': '',
         'AWS_DEFAULT_REGION': 'us-east-1',

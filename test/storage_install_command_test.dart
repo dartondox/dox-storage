@@ -87,7 +87,7 @@ void main() {
     expect(exitCode, 0);
     expect(read('lib/config/storage.dart'), contains("'driver': 's3'"));
     expect(read('lib/config/env.dart'), contains('String? get awsBucket;'));
-    expect(read('.env'), contains('STORAGE_DISK=s3\n'));
+    expect(read('.env'), contains('STORAGE_DISK=local\n'));
     expect(read('.env'), contains('AWS_DEFAULT_REGION=us-east-1\n'));
     expect(read('.env'), contains('AWS_BUCKET=\n'));
   });
