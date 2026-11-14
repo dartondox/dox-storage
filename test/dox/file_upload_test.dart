@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:convert';
 import 'dart:io';
 
@@ -8,10 +9,17 @@ import 'package:test/test.dart';
 
 import 'upload.dart';
 
+/// A new key for each run. A fixed key in a public repo is a public key,
+/// and dox_core refuses public sample keys outside development and tests.
+final String _testKey = List<String>.generate(
+  32,
+  (int i) => Random.secure().nextInt(36).toRadixString(36),
+).join();
+
 String get baseUrl => 'http://localhost:${Dox().server.httpServer.port}';
 
 AppConfig config = AppConfig(
-  appKey: '4HyiSrq4N5Nfg6bOadIhbFEI8zbUkpxt',
+  appKey: _testKey,
   // the OS picks a free port, so test files can run in parallel
   serverPort: 0,
   totalIsolate: 1,
