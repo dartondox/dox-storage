@@ -34,7 +34,7 @@ StorageConfig storageConfig = StorageConfig(
   disks: <String, Map<String, dynamic>>{
     'local': <String, dynamic>{
       'driver': 'local',
-      'root': 'storage',
+      'root': 'storage/app',
       'url': 'http://localhost:3000/files', // base for url() and signedUrl()
     },
     's3': <String, dynamic>{
@@ -149,6 +149,7 @@ String url = await Storage().url('/avatars/a.png');
 String link = await Storage().signedUrl('/avatars/a.png', expiresIn: const Duration(minutes: 10));
 ```
 
+An unsigned route serves every file under the disk root. Keep the root a folder that holds only public uploads.
 Add `Storage.route(...)` inside a route group or router, as any other route.
 For a local signed URL, set the disk `url` to the host plus the route path, for example `http://localhost:3000/files`.
 `Storage.route` with `signed: true` only works on a local disk.

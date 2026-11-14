@@ -59,7 +59,7 @@ class StorageInstallCommand extends Command {
       'lib/providers/storage_provider.dart',
       storageProvider(app),
     );
-    installer.makeFolder('storage');
+    installer.makeFolder('storage/app');
 
     Map<String, String> keys = envKeys(disk);
     for (String key in keys.keys) {
@@ -142,8 +142,9 @@ import 'package:$app/config/env.dart';
 StorageConfig storageConfig = StorageConfig(
   defaultDisk: env.storageDisk,
   disks: <String, Map<String, dynamic>>{
-    /// files in the `storage` folder
-    'local': <String, dynamic>{'driver': 'local', 'root': 'storage'},
+    /// files in the `storage/app` folder. Keep it apart from `storage/cache`,
+    /// so an unsigned file route can not serve cache entries
+    'local': <String, dynamic>{'driver': 'local', 'root': 'storage/app'},
 ${disk == 's3' ? _s3Disk : ''}  },
 );
 ''';
