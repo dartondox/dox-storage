@@ -1,4 +1,4 @@
-## Unreleased
+## 3.2.1
 
 - Fix: `dox storage:install` wrote the local disk root as `storage`. An unsigned `Storage.route` then served the whole `storage/` folder, including `storage/cache`. It now writes `storage/app` and makes that folder. The runtime default of `StorageConfig` is still `storage`, so existing apps keep their files. Docs now say: an unsigned route serves every file under the disk root.
 
