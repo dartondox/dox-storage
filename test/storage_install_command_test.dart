@@ -75,7 +75,8 @@ void main() {
       read('lib/providers/storage_provider.dart'),
       contains("import 'package:my_app/config/storage.dart';"),
     );
-    expect(Directory('${root.path}/storage').existsSync(), isTrue);
+    expect(Directory('${root.path}/storage/app').existsSync(), isTrue);
+    expect(read('lib/config/storage.dart'), contains("'root': 'storage/app'"));
     expect(read('.env'), contains('STORAGE_DISK=local\n'));
     expect(read('.env'), isNot(contains('AWS_')));
     expect(read('lib/config/env.dart'), contains("storageDisk => 'local'"));

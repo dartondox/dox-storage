@@ -57,7 +57,7 @@ void main() async {
    StorageConfig storageConfig = StorageConfig(
      defaultDisk: 'local',
      disks: <String, Map<String, dynamic>>{
-       'local': <String, dynamic>{'driver': 'local', 'root': 'storage'},
+       'local': <String, dynamic>{'driver': 'local', 'root': 'storage/app'},
      },
    );
    ```
@@ -85,6 +85,7 @@ void main() async {
    ```
 
    Serve files with `Storage.route('files')` in a router.
+   An unsigned route (`signed: false`) serves every file under the disk root. Keep the root a folder that holds only public uploads.
 
 Without the provider, `Storage()` has one `local` disk in the `storage` folder.
 

@@ -1,3 +1,7 @@
+## Unreleased
+
+- Fix: `dox storage:install` wrote the local disk root as `storage`. An unsigned `Storage.route` then served the whole `storage/` folder, including `storage/cache`. It now writes `storage/app` and makes that folder. The runtime default of `StorageConfig` is still `storage`, so existing apps keep their files. Docs now say: an unsigned route serves every file under the disk root.
+
 ## 3.2.0
 
 - New: `dox storage:install [--disk=local|s3]`, run by `dox add storage`. It writes `lib/config/storage.dart`, `lib/providers/storage_provider.dart`, the `storage` folder, the `STORAGE_DISK` key and the `AppEnv` getters. `--disk=s3` adds the `s3` disk and the `AWS_*` keys. It never overwrites a file. dox_storage now depends on dox_annotation.
