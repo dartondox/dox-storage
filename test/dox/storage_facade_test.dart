@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -8,6 +9,13 @@ import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
 
 import 'free_port.dart';
+
+/// A new key for each run. A fixed key in a public repo is a public key,
+/// and dox_core refuses public sample keys outside development and tests.
+final String _testKey = List<String>.generate(
+  32,
+  (int i) => Random.secure().nextInt(36).toRadixString(36),
+).join();
 
 /// a free port, known before the start: the storage disk URL needs it.
 /// Set in setUpAll, before [config] is read.
@@ -53,7 +61,7 @@ class FileRouter extends Router {
 }
 
 AppConfig config = AppConfig(
-  appKey: '4HyiSrq4N5Nfg6bOadIhbFEI8zbUkpxt',
+  appKey: _testKey,
 
   serverPort: port,
   totalIsolate: 1,
