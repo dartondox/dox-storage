@@ -721,6 +721,57 @@ void main() {
       expect(file.readAsStringSync(), 'one\ntwo');
     });
 
+    test('append adds in place, without reading the file', () async {
+      File file = File(p.join(dir.path, 'log.txt'));
+      file.writeAsStringSync('one');
+      // write only: a read of the old text would fail
+      await Process.run('chmod', <String>['200', file.path]);
+      await disk.append('log.txt', 'two');
+      await Process.run('chmod', <String>['600', file.path]);
+      expect(file.readAsStringSync(), 'one\ntwo');
+    }, testOn: '!windows');
+
+    test('recursive listAll with a limit gives the same pages', () async {
+      for (String key in <String>[
+        'a-b.txt',
+        'a/b.txt',
+        'a/c/d.txt',
+        'a/c-e.txt',
+        'a0.txt',
+        'b/z.txt',
+        'B.txt',
+        'c.txt',
+      ]) {
+        await disk.put(key, 'x');
+      }
+      ListResult all = await disk.listAll(
+        '',
+        const ListOptions(recursive: true),
+      );
+      List<String> expected = all.objects.map(_key).toList();
+      expect(expected.length, 8);
+      for (int limit in <int>[1, 2, 3, 8, 9]) {
+        List<String> paged = <String>[];
+        String? token;
+        do {
+          ListResult page = await disk.listAll(
+            '',
+            ListOptions(recursive: true, limit: limit, paginationToken: token),
+          );
+          expect(page.objects.length, lessThanOrEqualTo(limit));
+          paged.addAll(page.objects.map(_key));
+          token = page.paginationToken;
+        } while (token != null);
+        expect(paged, expected, reason: 'limit $limit');
+      }
+      ListResult sub = await disk.listAll(
+        'a',
+        const ListOptions(recursive: true, limit: 2, paginationToken: '1'),
+      );
+      expect(sub.objects.map(_key), <String>['a/c-e.txt', 'a/c/d.txt']);
+      expect(sub.paginationToken, isNull);
+    });
+
     test('deleteAll() keeps the root folder', () async {
       await disk.put('a/b.txt', 'x');
       await disk.deleteAll();

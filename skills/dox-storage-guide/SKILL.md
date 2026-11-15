@@ -70,7 +70,7 @@ Read secrets from the app `env` class in `lib/config/env.dart`, never hard-code 
 | Driver | Options |
 | --- | --- |
 | `local` | `root` (default `storage`), `url`, `visibility` (default public), `atomic_writes`, `permissions`, `app_key` |
-| `s3` | `bucket`, `key`, `secret` (these three are required), `region` (default `us-east-1`), `token`, `endpoint`, `path_style`, `url`, `visibility` (default private), `acl`, `batch_delete` |
+| `s3` | `bucket`, `key`, `secret` (these three are required), `region` (default `us-east-1`), `token`, `endpoint`, `path_style`, `url`, `visibility` (default private), `acl`, `batch_delete`, `unsigned_payload` (default false; skips the body hash, only safe over HTTPS) |
 | `memory` | none |
 
 A missing required S3 setting, or an unknown `driver`, throws `ArgumentError` at start.
@@ -197,7 +197,7 @@ All errors extend `StorageException` (it has `key`, `message`, `cause`):
 - `deleteDirectory` refuses the root and throws `InvalidKeyException`. To empty a disk on purpose use `Storage().use().deleteAll()`.
 - `makeDirectory` only works on the local disk. On S3 and memory it does nothing. A folder exists there when a file is under it.
 - `Storage().get` returns `Uint8List?`. `Disk.get` throws when the file is missing.
-- `append` and `prepend` read the file and write it back. They are not safe for two writers at the same time.
+- `prepend` reads the file and writes it back. `append` does the same, except on a local disk with `atomic_writes` and `permissions` off: there it adds to the end of the file in place. Neither is safe for two writers at the same time.
 - Local `setVisibility` needs the `permissions` option. With `'acl': false` on S3 it does nothing.
 - Local `atomic_writes: true` writes a temp file and renames it, so a failed upload leaves no partial file. It is off by default.
 - `copy` and `move` replace a file that is already at the target.

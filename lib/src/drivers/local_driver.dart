@@ -444,6 +444,27 @@ class LocalDriver implements DriverContract {
     }
   }
 
+  /// Add [data] to the end of a file. The file is opened in append mode,
+  /// so the old content is not read or written again. A missing file is
+  /// made. [separator] goes before [data] only when the file is not empty.
+  ///
+  /// `Disk.append` uses it only when `atomicWrites` and `permissions`
+  /// are off. It does not follow those rules itself.
+  Future<void> appendInPlace(String key, String data, String separator) async {
+    File file = await _writableFile(key);
+    RandomAccessFile handle = await _io(
+      key,
+      file.open(mode: FileMode.writeOnlyAppend),
+    );
+    try {
+      bool empty = await handle.length() == 0;
+      await handle.writeFrom(utf8.encode(empty ? data : '$separator$data'));
+      await handle.flush();
+    } finally {
+      await handle.close();
+    }
+  }
+
   /// [put] and [putStream] with `permissions` on. The mode is set before
   /// the content is there, so a private file is never open to others.
   /// [mode] is the mode to set. When null, a file that is there keeps its
@@ -733,6 +754,10 @@ class LocalDriver implements DriverContract {
     if (!await directory.exists()) {
       return ListResult(entries);
     }
+    int? limit = options.limit;
+    if (options.recursive && limit != null) {
+      return _listPage(directory, options, limit);
+    }
     Stream<FileSystemEntity> items = directory.list(
       recursive: options.recursive,
       followLinks: false,
@@ -747,5 +772,71 @@ class LocalDriver implements DriverContract {
       }
     }
     return _listing.paginate(entries, options);
+  }
+
+  /// One page of a recursive listing. Folders are read in key order, and
+  /// the walk stops after the page. So an early page does not read the
+  /// whole tree. The token is the offset of the next page, the same as in
+  /// [Listing.paginate], and so are the order and the result.
+  Future<ListResult> _listPage(
+    Directory directory,
+    ListOptions options,
+    int limit,
+  ) async {
+    // ponytail: page N still walks the N-1 pages before it. A key as
+    // token would skip them, but old offset tokens must keep working.
+    int offset = int.tryParse(options.paginationToken ?? '') ?? 0;
+    int end = offset + limit;
+    int index = 0;
+    List<DriveEntry> entries = <DriveEntry>[];
+    await for (String key in _sortedKeys(directory)) {
+      if (index >= end) {
+        return ListResult(entries, paginationToken: '$end');
+      }
+      if (index >= offset) {
+        entries.add(DriveFile(key));
+      }
+      index++;
+    }
+    return ListResult(entries);
+  }
+
+  /// Keys of the files under [directory], in key order. One folder is
+  /// read at a time. A folder sorts as its name plus `/`, because all its
+  /// keys start with that: so `a-b` comes before the keys in `a/`.
+  Stream<String> _sortedKeys(Directory directory) async* {
+    List<_Child> children = <_Child>[];
+    await for (FileSystemEntity entity in directory.list(followLinks: false)) {
+      String name = p.basename(entity.path);
+      if (entity is File) {
+        if (!_isTempFile(entity.path)) {
+          children.add(_Child(name, entity.path, folder: false));
+        }
+      } else if (entity is Directory) {
+        children.add(_Child('$name/', entity.path, folder: true));
+      }
+    }
+    children.sort(_Child.compare);
+    for (_Child child in children) {
+      if (child.folder) {
+        yield* _sortedKeys(Directory(child.path));
+      } else {
+        yield p.split(p.relative(child.path, from: root)).join('/');
+      }
+    }
+  }
+}
+
+/// A file or folder in one folder, for [LocalDriver._sortedKeys].
+class _Child {
+  /// The name, with `/` at the end for a folder.
+  final String sortName;
+  final String path;
+  final bool folder;
+
+  const _Child(this.sortName, this.path, {required this.folder});
+
+  static int compare(_Child a, _Child b) {
+    return a.sortName.compareTo(b.sortName);
   }
 }

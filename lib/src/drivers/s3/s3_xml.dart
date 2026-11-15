@@ -8,7 +8,7 @@ class S3Xml {
 
   /// Inner text of every `<tag>...</tag>`, in order. Not decoded.
   List<String> all(String xml, String tag) {
-    RegExp pattern = RegExp('<$tag>(.*?)</$tag>', dotAll: true);
+    RegExp pattern = _tags[tag] ??= RegExp('<$tag>(.*?)</$tag>', dotAll: true);
     List<String> found = <String>[];
     for (RegExpMatch match in pattern.allMatches(xml)) {
       found.add(match.group(1)!);
@@ -24,11 +24,19 @@ class S3Xml {
 
   /// Decode XML entities.
   String decode(String text) {
-    return text.replaceAllMapped(
-      RegExp(r'&(#x[0-9a-fA-F]+|#[0-9]+|amp|lt|gt|quot|apos);'),
-      _entity,
-    );
+    if (!text.contains('&')) {
+      return text;
+    }
+    return text.replaceAllMapped(_entities, _entity);
   }
+
+  /// One pattern per tag name. The code asks for a few fixed tag names
+  /// only, so this stays small.
+  static final Map<String, RegExp> _tags = <String, RegExp>{};
+
+  static final RegExp _entities = RegExp(
+    r'&(#x[0-9a-fA-F]+|#[0-9]+|amp|lt|gt|quot|apos);',
+  );
 
   /// Escape text for an XML body.
   String escape(String text) {

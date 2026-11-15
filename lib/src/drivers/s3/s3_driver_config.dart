@@ -44,8 +44,20 @@ class S3DriverConfig {
   /// deletes files one by one.
   final bool supportsBatchDelete;
 
-  /// Part size for multipart upload in `putStream`. At least 5 MiB.
+  /// Part size for multipart upload in `putStream`. From 5 MiB to
+  /// 5 GiB, the S3 limits. [S3Driver] throws [ArgumentError] for a size
+  /// out of that range.
   final int multipartPartSize;
+
+  /// Off by default: every request body is hashed (SHA-256) and the hash
+  /// is part of the signature.
+  ///
+  /// When on, bodies are sent with `x-amz-content-sha256:
+  /// UNSIGNED-PAYLOAD`, so no time is spent on the hash. The signature
+  /// then does not cover the body. This is only safe over HTTPS, where TLS
+  /// keeps the body from being changed on the way. Do not turn it on for
+  /// an `http://` endpoint.
+  final bool unsignedPayload;
 
   const S3DriverConfig({
     required this.bucket,
@@ -60,5 +72,6 @@ class S3DriverConfig {
     this.supportsAcl = true,
     this.supportsBatchDelete = true,
     this.multipartPartSize = StorageConstants.defaultMultipartPartSize,
+    this.unsignedPayload = false,
   });
 }

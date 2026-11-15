@@ -22,12 +22,23 @@ class S3Driver implements DriverContract {
   final S3Client client;
 
   /// Pass [httpClient] to reuse a client or to mock S3 in tests.
+  /// Throws [ArgumentError] when [S3DriverConfig.multipartPartSize] is
+  /// not from 5 MiB to 5 GiB. S3 would refuse such parts later, in the
+  /// middle of an upload.
   S3Driver(this.config, {http.Client? httpClient, Clock clock = const Clock()})
     : client = S3Client(
         config,
         httpClient: httpClient ?? http.Client(),
         clock: clock,
-      );
+      ) {
+    RangeError.checkValueInInterval(
+      config.multipartPartSize,
+      StorageConstants.minMultipartPartSize,
+      StorageConstants.maxMultipartPartSize,
+      'multipartPartSize',
+      'S3 needs a part size from 5 MiB to 5 GiB',
+    );
+  }
 
   /// Close the HTTP client.
   void close() {
@@ -70,6 +81,13 @@ class S3Driver implements DriverContract {
 
   @override
   Future<Stream<List<int>>> getStream(String key) async {
+    ObjectStream file = await getStreamWithMetaData(key);
+    return file.stream;
+  }
+
+  /// [getStream] and [getMetaData] in one GET request. The metadata comes
+  /// from the GET response headers, so no HEAD request is needed.
+  Future<ObjectStream> getStreamWithMetaData(String key) async {
     http.StreamedResponse response = await client.sendStreamed(
       'GET',
       client.objectUri(key),
@@ -77,14 +95,17 @@ class S3Driver implements DriverContract {
     if (response.statusCode != 200) {
       client.fail(response.statusCode, await client.readBody(response), key);
     }
-    return response.stream;
+    return ObjectStream(response.stream, _metaData(response.headers));
   }
 
   @override
   Future<ObjectMetaData> getMetaData(String key) async {
     http.Response response = await client.send('HEAD', client.objectUri(key));
     client.check(response, key);
-    Map<String, String> headers = response.headers;
+    return _metaData(response.headers);
+  }
+
+  ObjectMetaData _metaData(Map<String, String> headers) {
     String? lastModified = headers['last-modified'];
     return ObjectMetaData(
       size: int.tryParse(headers['content-length'] ?? '') ?? 0,
@@ -213,32 +234,46 @@ class S3Driver implements DriverContract {
     Stream<List<int>> contents,
     WriteOptions options,
   ) async {
-    // ponytail: buffers one part (multipartPartSize, 8 MiB by default) in
-    // memory at a time and uploads parts one by one, not in parallel.
+    // ponytail: keeps one part (multipartPartSize, 8 MiB by default) in
+    // memory, as the chunks that came in, with no copy. Parts go up one
+    // by one, not in parallel.
     int partSize = config.multipartPartSize;
-    BytesBuilder buffer = BytesBuilder(copy: false);
+    S3PartBuffer part = _newPart();
     S3MultipartUpload? upload;
     try {
       await for (List<int> chunk in contents) {
-        buffer.add(chunk);
-        while (buffer.length >= partSize) {
-          Uint8List all = buffer.takeBytes();
+        Uint8List bytes = chunk is Uint8List
+            ? chunk
+            : Uint8List.fromList(chunk);
+        while (part.length + bytes.length >= partSize) {
+          int take = partSize - part.length;
+          part.add(Uint8List.sublistView(bytes, 0, take));
+          bytes = Uint8List.sublistView(bytes, take);
           upload ??= await S3MultipartUpload.start(
             client,
             key,
             _writeHeaders(key, options),
           );
-          await upload.uploadPart(Uint8List.sublistView(all, 0, partSize));
-          buffer.add(Uint8List.sublistView(all, partSize));
+          await upload.uploadPart(part);
+          part = _newPart();
+        }
+        if (bytes.isNotEmpty) {
+          part.add(bytes);
         }
       }
-      Uint8List rest = buffer.takeBytes();
       if (upload == null) {
-        await put(key, rest, options);
+        http.Response response = await client.sendChunks(
+          'PUT',
+          client.objectUri(key),
+          headers: _writeHeaders(key, options),
+          chunks: part.chunks,
+          hash: part.hash(),
+        );
+        client.check(response, key);
         return;
       }
-      if (rest.isNotEmpty) {
-        await upload.uploadPart(rest);
+      if (part.length > 0) {
+        await upload.uploadPart(part);
       }
       await upload.complete();
     } catch (_) {
@@ -248,6 +283,10 @@ class S3Driver implements DriverContract {
       } catch (_) {}
       rethrow;
     }
+  }
+
+  S3PartBuffer _newPart() {
+    return S3PartBuffer(unsignedPayload: config.unsignedPayload);
   }
 
   @override
@@ -301,30 +340,33 @@ class S3Driver implements DriverContract {
 
   @override
   Future<void> deleteAll(String prefix) async {
-    List<String> keys = <String>[];
+    // One page of keys (at most 1000) at a time: list a page, delete it,
+    // then list the next one. The continuation token points after the
+    // last key of the page, so deleted keys do not move the next page.
     // Folder markers (like "photos/") must go too. If one stays, the
     // folder still exists after the delete.
-    ListResult result = await _list(
-      prefix,
-      const ListOptions(recursive: true),
-      markers: true,
-    );
-    for (DriveEntry entry in result.objects) {
-      keys.add(entry.key);
-    }
-    if (!config.supportsBatchDelete) {
-      for (String key in keys) {
-        await delete(key);
-      }
-      return;
-    }
-    for (int i = 0; i < keys.length; i += StorageConstants.s3DeleteBatchSize) {
-      int end = i + StorageConstants.s3DeleteBatchSize;
-      await _deleteBatch(
+    String? token;
+    do {
+      _Page page = await _listPage(
         prefix,
-        keys.sublist(i, end > keys.length ? keys.length : end),
+        recursive: true,
+        markers: true,
+        token: token,
+        maxKeys: StorageConstants.s3DeleteBatchSize,
       );
-    }
+      List<String> keys = <String>[];
+      for (DriveEntry entry in page.entries) {
+        keys.add(entry.key);
+      }
+      if (!config.supportsBatchDelete) {
+        for (String key in keys) {
+          await delete(key);
+        }
+      } else if (keys.isNotEmpty) {
+        await _deleteBatch(prefix, keys);
+      }
+      token = page.token;
+    } while (token != null);
   }
 
   Future<void> _deleteBatch(String prefix, List<String> keys) async {
@@ -333,7 +375,7 @@ class S3Driver implements DriverContract {
       xml.write('<Object><Key>${client.xml.escape(key)}</Key></Object>');
     }
     xml.write('</Delete>');
-    Uint8List body = Uint8List.fromList(utf8.encode(xml.toString()));
+    Uint8List body = utf8.encode(xml.toString());
     http.Response response = await client.send(
       'POST',
       client.bucketUri(<String, String>{'delete': ''}),
@@ -347,8 +389,26 @@ class S3Driver implements DriverContract {
   }
 
   @override
-  Future<ListResult> listAll(String prefix, ListOptions options) {
-    return _list(prefix, options, markers: false);
+  Future<ListResult> listAll(String prefix, ListOptions options) async {
+    List<DriveEntry> entries = <DriveEntry>[];
+    String? token = options.paginationToken;
+    int? limit = options.limit;
+    while (true) {
+      _Page page = await _listPage(
+        prefix,
+        recursive: options.recursive,
+        markers: false,
+        token: token,
+        maxKeys: limit ?? 1000,
+      );
+      entries.addAll(page.entries);
+      token = page.token;
+      if (token == null || limit != null) {
+        break;
+      }
+    }
+    entries.sort(_compareKeys);
+    return ListResult(entries, paginationToken: token);
   }
 
   /// True when any key starts with `prefix/`. A folder marker like
@@ -367,57 +427,57 @@ class S3Driver implements DriverContract {
     return client.xml.all(client.text(response), 'Contents').isNotEmpty;
   }
 
-  /// With [markers] true, keys that end with `/` come back as files.
-  Future<ListResult> _list(
-    String prefix,
-    ListOptions options, {
+  /// One ListObjectsV2 request. With [markers] true, keys that end with
+  /// `/` come back as files.
+  Future<_Page> _listPage(
+    String prefix, {
+    required bool recursive,
     required bool markers,
+    required String? token,
+    required int maxKeys,
   }) async {
+    Map<String, String> query = <String, String>{
+      'list-type': '2',
+      'prefix': prefix.isEmpty ? '' : '$prefix/',
+      'max-keys': '$maxKeys',
+    };
+    if (!recursive) {
+      query['delimiter'] = '/';
+    }
+    if (token != null) {
+      query['continuation-token'] = token;
+    }
+    http.Response response = await client.send('GET', client.bucketUri(query));
+    client.check(response, prefix);
+    String body = client.text(response);
     List<DriveEntry> entries = <DriveEntry>[];
-    String? token = options.paginationToken;
-    int? limit = options.limit;
-    while (true) {
-      Map<String, String> query = <String, String>{
-        'list-type': '2',
-        'prefix': prefix.isEmpty ? '' : '$prefix/',
-        'max-keys': '${limit ?? 1000}',
-      };
-      if (!options.recursive) {
-        query['delimiter'] = '/';
-      }
-      if (token != null) {
-        query['continuation-token'] = token;
-      }
-      http.Response response = await client.send(
-        'GET',
-        client.bucketUri(query),
-      );
-      client.check(response, prefix);
-      String body = client.text(response);
-      for (String item in client.xml.all(body, 'Contents')) {
-        String key = client.xml.first(item, 'Key')!;
-        // Skip "folder marker" objects like "photos/".
-        if (markers || !key.endsWith('/')) {
-          entries.add(DriveFile(key));
-        }
-      }
-      for (String item in client.xml.all(body, 'CommonPrefixes')) {
-        String folder = client.xml.first(item, 'Prefix')!;
-        entries.add(DriveDirectory(folder.substring(0, folder.length - 1)));
-      }
-      bool truncated = client.xml.first(body, 'IsTruncated') == 'true';
-      token = truncated
-          ? client.xml.first(body, 'NextContinuationToken')
-          : null;
-      if (token == null || limit != null) {
-        break;
+    for (String item in client.xml.all(body, 'Contents')) {
+      String key = client.xml.first(item, 'Key')!;
+      // Skip "folder marker" objects like "photos/".
+      if (markers || !key.endsWith('/')) {
+        entries.add(DriveFile(key));
       }
     }
-    entries.sort(_compareKeys);
-    return ListResult(entries, paginationToken: token);
+    for (String item in client.xml.all(body, 'CommonPrefixes')) {
+      String folder = client.xml.first(item, 'Prefix')!;
+      entries.add(DriveDirectory(folder.substring(0, folder.length - 1)));
+    }
+    bool truncated = client.xml.first(body, 'IsTruncated') == 'true';
+    return _Page(
+      entries,
+      truncated ? client.xml.first(body, 'NextContinuationToken') : null,
+    );
   }
 
   static int _compareKeys(DriveEntry a, DriveEntry b) {
     return a.key.compareTo(b.key);
   }
+}
+
+/// One page of a listing and the token of the next page.
+class _Page {
+  final List<DriveEntry> entries;
+  final String? token;
+
+  const _Page(this.entries, this.token);
 }

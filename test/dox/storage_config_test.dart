@@ -15,6 +15,16 @@ void main() {
       expect(factory.driver('s3', s3), isNotNull);
     });
 
+    test('s3 unsigned_payload is off unless set to true', () {
+      S3Driver plain = factory.driver('s3', s3) as S3Driver;
+      S3Driver fast = factory.driver('s3', <String, dynamic>{
+        ...s3,
+        'unsigned_payload': true,
+      }) as S3Driver;
+      expect(plain.config.unsignedPayload, isFalse);
+      expect(fast.config.unsignedPayload, isTrue);
+    });
+
     for (String key in <String>['bucket', 'key', 'secret']) {
       test('s3 without $key names the missing setting', () {
         Map<String, dynamic> options = <String, dynamic>{...s3}..remove(key);

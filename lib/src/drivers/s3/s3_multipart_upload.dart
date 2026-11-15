@@ -36,20 +36,21 @@ class S3MultipartUpload {
   }
 
   /// Upload the next part.
-  Future<void> uploadPart(Uint8List bytes) async {
+  Future<void> uploadPart(S3PartBuffer part) async {
     int partNumber = _etags.length + 1;
     // ponytail: S3 caps uploads at 10,000 parts (~78 GiB with 8 MiB parts);
     // raise multipartPartSize for bigger files.
     if (partNumber > StorageConstants.maxMultipartParts) {
       throw DriverException(key, 'File is larger than 10,000 parts');
     }
-    http.Response response = await client.send(
+    http.Response response = await client.sendChunks(
       'PUT',
       client.objectUri(key, <String, String>{
         'partNumber': '$partNumber',
         'uploadId': uploadId,
       }),
-      body: bytes,
+      chunks: part.chunks,
+      hash: part.hash(),
     );
     client.check(response, key);
     String? etag = response.headers['etag'];
@@ -73,7 +74,7 @@ class S3MultipartUpload {
       'POST',
       client.objectUri(key, <String, String>{'uploadId': uploadId}),
       headers: <String, String>{'content-type': 'application/xml'},
-      body: Uint8List.fromList(utf8.encode(body.toString())),
+      body: utf8.encode(body.toString()),
     );
     client.checkBodyError(response, key);
   }
@@ -84,5 +85,31 @@ class S3MultipartUpload {
       'DELETE',
       client.objectUri(key, <String, String>{'uploadId': uploadId}),
     );
+  }
+}
+
+/// The bytes of one part (or of a small file), kept as the chunks they
+/// came in, with no copy. Each chunk is hashed when it is added, so the
+/// part is never read twice. With `unsignedPayload` on, nothing is hashed.
+class S3PartBuffer {
+  final List<Uint8List> chunks = <Uint8List>[];
+  final PayloadHasher? _hasher;
+  int length = 0;
+
+  S3PartBuffer({required bool unsignedPayload})
+    : _hasher = unsignedPayload ? null : PayloadHasher();
+
+  void add(Uint8List chunk) {
+    chunks.add(chunk);
+    length += chunk.length;
+    _hasher?.add(chunk);
+  }
+
+  /// The `x-amz-content-sha256` value. Call it once, when the part is full.
+  String hash() {
+    if (length == 0) {
+      return StorageConstants.emptyPayloadHash;
+    }
+    return _hasher?.close() ?? StorageConstants.unsignedPayload;
   }
 }

@@ -31,7 +31,7 @@ class Disk {
     }
     Uint8List bytes;
     if (contents is String) {
-      bytes = Uint8List.fromList(utf8.encode(contents));
+      bytes = utf8.encode(contents);
     } else if (contents is Uint8List) {
       bytes = contents;
     } else if (contents is List<int>) {
@@ -90,6 +90,23 @@ class Disk {
     }
   }
 
+  /// A file as a stream, with its metadata. On S3 this is one GET
+  /// request, not a HEAD and a GET. On other disks it is [getMetaData]
+  /// and then [getStream].
+  Future<ObjectStream> getStreamWithMetaData(String key) async {
+    String k = normalizer.key(key);
+    DriverContract target = driver;
+    try {
+      if (target is S3Driver) {
+        return await target.getStreamWithMetaData(k);
+      }
+      ObjectMetaData meta = await target.getMetaData(k);
+      return ObjectStream(await target.getStream(k), meta);
+    } catch (error, stack) {
+      _fail(error, stack, k);
+    }
+  }
+
   /// Size, content type, last modified time and etag.
   Future<ObjectMetaData> getMetaData(String key) async {
     String k = normalizer.key(key);
@@ -122,6 +139,21 @@ class Disk {
     String data, {
     String separator = '\n',
   }) async {
+    DriverContract target = driver;
+    // ponytail: only a plain local disk appends in place. With
+    // `atomicWrites` or `permissions` on, and on a subclass, it keeps the
+    // read and rewrite below, which keeps their rules.
+    if (target.runtimeType == LocalDriver &&
+        target is LocalDriver &&
+        !target.config.atomicWrites &&
+        target.config.permissions == null) {
+      String k = normalizer.key(key);
+      try {
+        return await target.appendInPlace(k, data, separator);
+      } catch (error, stack) {
+        _fail(error, stack, k);
+      }
+    }
     Uint8List? old = await _getOrNull(key);
     BytesBuilder out = BytesBuilder(copy: false);
     if (old != null && old.isNotEmpty) {

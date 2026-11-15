@@ -2,6 +2,15 @@
 
 - Fix: on S3, `directoryExists` said false for an empty folder made in the S3 console ("Create folder"). It also said false when the folder marker came first and the files after it. It now looks for any key under the folder, marker included. `listAll` still hides markers.
 - Fix: on S3, `deleteDirectory` and `deleteAll` left the folder marker behind, so the folder still existed. They now delete the marker too.
+- Check: `S3Driver` now throws `ArgumentError` when `multipartPartSize` is not from 5 MiB to 5 GiB. Before, S3 refused such parts in the middle of a big upload.
+- Faster: S3 `putStream` keeps one part in memory, not two or three. A part is kept as the chunks that came in, with no copy. Peak memory per upload goes from about 24 MiB to about 8 MiB.
+- Faster: S3 bodies are hashed while a part fills, so the bytes are read once. A big `put` body is hashed in 1 MiB slices with a pause between them, not in a new isolate with a full copy. An empty body uses the known empty hash.
+- New: opt-in `unsignedPayload` on `S3DriverConfig` (`unsigned_payload: true` in the disk config). It skips the body hash and sends `UNSIGNED-PAYLOAD`. Off by default. The signature then does not cover the body, so only use it over HTTPS.
+- Faster: `Storage().stream()` and `download()` on S3 send one GET, not a HEAD and a GET. The size, type, date and etag come from the GET headers. A missing file still gives 404. New `Disk.getStreamWithMetaData()` and `ObjectStream` for this. `DriverContract` has no new methods.
+- Faster: `append` on a local disk opens the file in append mode, so it does not read and write the whole file. With `atomicWrites` or `permissions` on, it works as before. `prepend` works as before.
+- Less memory: S3 `deleteAll` lists and deletes one page of 1000 keys at a time, not all keys first.
+- Faster: a recursive local `listAll` with a `limit` reads folders in key order and stops after the page. The order, the tokens and the results stay the same.
+- Faster: S3 requests make the bucket URL once, and the XML reader and the signer make each pattern once.
 
 ## 3.2.1
 
