@@ -302,9 +302,12 @@ class S3Driver implements DriverContract {
   @override
   Future<void> deleteAll(String prefix) async {
     List<String> keys = <String>[];
-    ListResult result = await listAll(
+    // Folder markers (like "photos/") must go too. If one stays, the
+    // folder still exists after the delete.
+    ListResult result = await _list(
       prefix,
       const ListOptions(recursive: true),
+      markers: true,
     );
     for (DriveEntry entry in result.objects) {
       keys.add(entry.key);
@@ -344,7 +347,32 @@ class S3Driver implements DriverContract {
   }
 
   @override
-  Future<ListResult> listAll(String prefix, ListOptions options) async {
+  Future<ListResult> listAll(String prefix, ListOptions options) {
+    return _list(prefix, options, markers: false);
+  }
+
+  /// True when any key starts with `prefix/`. A folder marker like
+  /// `photos/` counts. [listAll] hides markers, so it can not tell an empty
+  /// folder from a missing one.
+  Future<bool> directoryExists(String prefix) async {
+    http.Response response = await client.send(
+      'GET',
+      client.bucketUri(<String, String>{
+        'list-type': '2',
+        'prefix': '$prefix/',
+        'max-keys': '1',
+      }),
+    );
+    client.check(response, prefix);
+    return client.xml.all(client.text(response), 'Contents').isNotEmpty;
+  }
+
+  /// With [markers] true, keys that end with `/` come back as files.
+  Future<ListResult> _list(
+    String prefix,
+    ListOptions options, {
+    required bool markers,
+  }) async {
     List<DriveEntry> entries = <DriveEntry>[];
     String? token = options.paginationToken;
     int? limit = options.limit;
@@ -369,7 +397,7 @@ class S3Driver implements DriverContract {
       for (String item in client.xml.all(body, 'Contents')) {
         String key = client.xml.first(item, 'Key')!;
         // Skip "folder marker" objects like "photos/".
-        if (!key.endsWith('/')) {
+        if (markers || !key.endsWith('/')) {
           entries.add(DriveFile(key));
         }
       }
