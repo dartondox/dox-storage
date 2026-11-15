@@ -1,3 +1,8 @@
+## Unreleased
+
+- Fix: on S3, `directoryExists` said false for an empty folder made in the S3 console ("Create folder"). It also said false when the folder marker came first and the files after it. It now looks for any key under the folder, marker included. `listAll` still hides markers.
+- Fix: on S3, `deleteDirectory` and `deleteAll` left the folder marker behind, so the folder still existed. They now delete the marker too.
+
 ## 3.2.1
 
 - Fix: `dox storage:install` wrote the local disk root as `storage`. An unsigned `Storage.route` then served the whole `storage/` folder, including `storage/cache`. It now writes `storage/app` and makes that folder. The runtime default of `StorageConfig` is still `storage`, so existing apps keep their files. Docs now say: an unsigned route serves every file under the disk root.

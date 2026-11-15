@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'driver_contract.dart';
 import 'drivers/local_driver.dart';
+import 'drivers/s3/s3_driver.dart';
 import 'exceptions.dart';
 import 'key_normalizer.dart';
 import 'types.dart';
@@ -228,7 +229,8 @@ class Disk {
 
   /// True when the folder exists. On a local disk it checks the real
   /// folder. On other disks (S3, memory) a folder exists when at least one
-  /// file has a key under it. [exists] stays true for files only.
+  /// key is under it (an S3 folder marker counts). [exists] stays true for
+  /// files only.
   /// The root (an empty path) is always true, on every disk.
   Future<bool> directoryExists(String path) async {
     String p = normalizer.prefix(path);
@@ -239,6 +241,10 @@ class Disk {
     try {
       if (target is LocalDriver) {
         return await Directory(target.pathFor(p)).exists();
+      }
+      if (target is S3Driver) {
+        // Its listing hides folder markers, so it has its own check.
+        return await target.directoryExists(p);
       }
       ListResult result = await target.listAll(p, const ListOptions(limit: 1));
       return result.objects.isNotEmpty;

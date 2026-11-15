@@ -313,6 +313,18 @@ void main() {
       expect(s3.requests, hasLength(2), reason: 'the root needs no request');
     });
 
+    test('directoryExists is true for an empty folder marker', () async {
+      s3.reply(
+        200,
+        '''
+<ListBucketResult><Contents><Key>photos/</Key></Contents></ListBucketResult>''',
+      );
+      Disk disk = diskWith(config());
+      expect(await disk.directoryExists('photos'), isTrue);
+      expect(s3.requests.single.url.queryParameters['prefix'], 'photos/');
+      expect(s3.requests.single.url.queryParameters['max-keys'], '1');
+    });
+
     test('without ACL support visibility makes no requests', () async {
       Disk disk = diskWith(config(supportsAcl: false));
       await disk.setVisibility('a.txt', Visibility.public);
@@ -442,6 +454,26 @@ void main() {
         request.headers['content-md5'],
         base64.encode(md5.convert(request.bodyBytes).bytes),
       );
+    });
+
+    test('deleteAll also deletes folder markers', () async {
+      s3.reply(200, listPage(keys: <String>['p/', 'p/1']));
+      s3.reply(200, '<DeleteResult></DeleteResult>');
+      await diskWith(config()).deleteAll('p');
+      expect(s3.requests[1].body, contains('<Key>p/</Key>'));
+      expect(s3.requests[1].body, contains('<Key>p/1</Key>'));
+    });
+
+    test('deleteAll follows pages and deletes markers from each', () async {
+      s3.reply(200, listPage(keys: <String>['p/', 'p/1'], next: 'tok'));
+      s3.reply(200, listPage(keys: <String>['p/sub/', 'p/2']));
+      s3.reply(200, '<DeleteResult></DeleteResult>');
+      await diskWith(config()).deleteAll('p');
+      expect(s3.requests[1].url.queryParameters['continuation-token'], 'tok');
+      String body = s3.requests[2].body;
+      for (String key in <String>['p/', 'p/1', 'p/sub/', 'p/2']) {
+        expect(body, contains('<Key>$key</Key>'));
+      }
     });
 
     test('deleteAll without batch support deletes one by one', () async {
