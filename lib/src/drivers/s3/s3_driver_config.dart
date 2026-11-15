@@ -45,8 +45,8 @@ class S3DriverConfig {
   final bool supportsBatchDelete;
 
   /// Part size for multipart upload in `putStream`. From 5 MiB to
-  /// 5 GiB, the S3 limits. [S3Driver] throws [ArgumentError] for a size
-  /// out of that range.
+  /// 5 GiB, the S3 limits. [S3Driver] prints a warning for a size out of
+  /// that range. It does not throw.
   final int multipartPartSize;
 
   /// Off by default: every request body is hashed (SHA-256) and the hash

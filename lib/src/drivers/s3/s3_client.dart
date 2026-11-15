@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -158,9 +159,9 @@ class S3Client {
   /// The `x-amz-content-sha256` value for [body].
   ///
   /// An empty body uses the known empty hash. With
-  /// [S3DriverConfig.unsignedPayload] on, it is `UNSIGNED-PAYLOAD`. A big
-  /// body is hashed in slices with a short pause between them, so the
-  /// event loop is not blocked. It is not copied.
+  /// [S3DriverConfig.unsignedPayload] on, it is `UNSIGNED-PAYLOAD`. A body
+  /// of [StorageConstants.isolateHashBytes] or more is hashed in another
+  /// isolate, so the event loop is not blocked.
   Future<String> payloadHash(Uint8List body) async {
     if (body.isEmpty) {
       return StorageConstants.emptyPayloadHash;
@@ -168,19 +169,10 @@ class S3Client {
     if (config.unsignedPayload) {
       return StorageConstants.unsignedPayload;
     }
-    int slice = StorageConstants.isolateHashBytes;
-    if (body.length < slice) {
+    if (body.length < StorageConstants.isolateHashBytes) {
       return SigV4Signer.sha256Hex(body);
     }
-    PayloadHasher hasher = PayloadHasher();
-    for (int start = 0; start < body.length; start += slice) {
-      if (start > 0) {
-        await Future<void>.delayed(Duration.zero);
-      }
-      int end = start + slice > body.length ? body.length : start + slice;
-      hasher.add(Uint8List.sublistView(body, start, end));
-    }
-    return hasher.close();
+    return Isolate.run(() => SigV4Signer.sha256Hex(body));
   }
 
   /// Throw unless the status is 2xx.

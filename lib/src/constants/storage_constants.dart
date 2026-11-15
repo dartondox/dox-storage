@@ -11,10 +11,8 @@ class StorageConstants {
   /// Part size for S3 multipart upload. S3 needs at least 5 MiB per part.
   static const int defaultMultipartPartSize = 8 * 1024 * 1024;
 
-  /// A body this big or bigger is hashed (sha256) in slices of this
-  /// size, with a short pause between them, so a large upload does not
-  /// block the event loop. The name is kept from the time it was hashed
-  /// in another isolate.
+  /// A body this big or bigger is hashed (sha256) in another isolate,
+  /// so a large upload does not block the event loop.
   static const int isolateHashBytes = 1024 * 1024;
 
   /// Smallest part size S3 accepts (all parts except the last one).

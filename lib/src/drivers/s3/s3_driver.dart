@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io' show HttpDate;
+import 'dart:io' show HttpDate, stderr;
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -22,22 +22,31 @@ class S3Driver implements DriverContract {
   final S3Client client;
 
   /// Pass [httpClient] to reuse a client or to mock S3 in tests.
-  /// Throws [ArgumentError] when [S3DriverConfig.multipartPartSize] is
-  /// not from 5 MiB to 5 GiB. S3 would refuse such parts later, in the
-  /// middle of an upload.
-  S3Driver(this.config, {http.Client? httpClient, Clock clock = const Clock()})
-    : client = S3Client(
-        config,
-        httpClient: httpClient ?? http.Client(),
-        clock: clock,
-      ) {
-    RangeError.checkValueInInterval(
-      config.multipartPartSize,
-      StorageConstants.minMultipartPartSize,
-      StorageConstants.maxMultipartPartSize,
-      'multipartPartSize',
-      'S3 needs a part size from 5 MiB to 5 GiB',
-    );
+  ///
+  /// When [S3DriverConfig.multipartPartSize] is not from 5 MiB to 5 GiB,
+  /// it does not throw, so an app that only uploads small files keeps
+  /// working. It writes one warning to [warnings] (stderr by default).
+  S3Driver(
+    this.config, {
+    http.Client? httpClient,
+    Clock clock = const Clock(),
+    StringSink? warnings,
+  }) : client = S3Client(
+         config,
+         httpClient: httpClient ?? http.Client(),
+         clock: clock,
+       ) {
+    int size = config.multipartPartSize;
+    if (size < StorageConstants.minMultipartPartSize ||
+        size > StorageConstants.maxMultipartPartSize) {
+      (warnings ?? stderr).writeln(
+        'WARNING dox_storage: multipartPartSize is $size bytes. '
+        'The allowed range is 5 MiB to 5 GiB '
+        '(${StorageConstants.minMultipartPartSize} to '
+        '${StorageConstants.maxMultipartPartSize} bytes). '
+        'S3 will refuse a multipart upload with parts under 5 MiB.',
+      );
+    }
   }
 
   /// Close the HTTP client.

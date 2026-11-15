@@ -92,7 +92,7 @@ void main() {
       expect(request.body, 'hello');
     });
 
-    test('a big body is hashed right (in slices)', () async {
+    test('a big body is hashed right (in another isolate)', () async {
       Uint8List big = Uint8List(StorageConstants.isolateHashBytes * 2 + 1);
       big[0] = 7;
       big[big.length - 1] = 9;
@@ -122,20 +122,30 @@ void main() {
       expect(request.body, 'hello');
     });
 
-    test('multipartPartSize must be from 5 MiB to 5 GiB', () {
-      expect(
-        () => S3Driver(
-          config(partSize: StorageConstants.minMultipartPartSize - 1),
-        ),
-        throwsArgumentError,
-      );
-      expect(
-        () => S3Driver(
-          config(partSize: StorageConstants.maxMultipartPartSize + 1),
-        ),
-        throwsArgumentError,
-      );
-      S3Driver(config(partSize: StorageConstants.minMultipartPartSize)).close();
+    test('a part size out of range warns once and does not throw', () {
+      for (int size in <int>[
+        StorageConstants.minMultipartPartSize - 1,
+        StorageConstants.maxMultipartPartSize + 1,
+      ]) {
+        StringBuffer warnings = StringBuffer();
+        S3Driver(config(partSize: size), warnings: warnings).close();
+        String text = warnings.toString();
+        expect(
+          text.split('\n').where((String l) => l.isNotEmpty),
+          hasLength(1),
+        );
+        expect(text, contains('$size'));
+        expect(text, contains('5 MiB to 5 GiB'));
+      }
+    });
+
+    test('a part size in range does not warn', () {
+      StringBuffer warnings = StringBuffer();
+      S3Driver(
+        config(partSize: StorageConstants.minMultipartPartSize),
+        warnings: warnings,
+      ).close();
+      expect(warnings.toString(), isEmpty);
     });
 
     test('virtual host style puts the bucket in the host', () async {
