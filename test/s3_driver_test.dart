@@ -37,6 +37,7 @@ S3DriverConfig config({
   bool supportsBatchDelete = true,
   int partSize = StorageConstants.defaultMultipartPartSize,
   String? urlBase,
+  bool unsignedPayload = false,
 }) {
   return S3DriverConfig(
     bucket: 'my-bucket',
@@ -49,6 +50,7 @@ S3DriverConfig config({
     supportsBatchDelete: supportsBatchDelete,
     multipartPartSize: partSize,
     urlBase: urlBase,
+    unsignedPayload: unsignedPayload,
   );
 }
 
@@ -91,13 +93,59 @@ void main() {
     });
 
     test('a big body is hashed right (in another isolate)', () async {
-      Uint8List big = Uint8List(StorageConstants.isolateHashBytes + 1);
+      Uint8List big = Uint8List(StorageConstants.isolateHashBytes * 2 + 1);
       big[0] = 7;
+      big[big.length - 1] = 9;
       await diskWith(config()).put('big.bin', big);
       expect(
         s3.requests.single.headers['x-amz-content-sha256'],
         sha256.convert(big).toString(),
       );
+    });
+
+    test('an empty body uses the known empty hash', () async {
+      await diskWith(config()).delete('a.txt');
+      await diskWith(config()).put('e.txt', '');
+      for (http.Request request in s3.requests) {
+        expect(
+          request.headers['x-amz-content-sha256'],
+          StorageConstants.emptyPayloadHash,
+        );
+      }
+    });
+
+    test('unsignedPayload sends UNSIGNED-PAYLOAD and signs the rest', () async {
+      await diskWith(config(unsignedPayload: true)).put('a.txt', 'hello');
+      http.Request request = s3.requests.single;
+      expect(request.headers['x-amz-content-sha256'], 'UNSIGNED-PAYLOAD');
+      expect(request.headers['authorization'], contains('Signature='));
+      expect(request.body, 'hello');
+    });
+
+    test('a part size out of range warns once and does not throw', () {
+      for (int size in <int>[
+        StorageConstants.minMultipartPartSize - 1,
+        StorageConstants.maxMultipartPartSize + 1,
+      ]) {
+        StringBuffer warnings = StringBuffer();
+        S3Driver(config(partSize: size), warnings: warnings).close();
+        String text = warnings.toString();
+        expect(
+          text.split('\n').where((String l) => l.isNotEmpty),
+          hasLength(1),
+        );
+        expect(text, contains('$size'));
+        expect(text, contains('5 MiB to 5 GiB'));
+      }
+    });
+
+    test('a part size in range does not warn', () {
+      StringBuffer warnings = StringBuffer();
+      S3Driver(
+        config(partSize: StorageConstants.minMultipartPartSize),
+        warnings: warnings,
+      ).close();
+      expect(warnings.toString(), isEmpty);
     });
 
     test('virtual host style puts the bucket in the host', () async {
@@ -241,6 +289,35 @@ void main() {
       expect(meta.contentType, 'image/png');
       expect(meta.lastModified, DateTime.utc(2025, 1, 1, 10));
       expect(meta.etag, 'abc123');
+    });
+
+    test('getStreamWithMetaData sends one GET, no HEAD', () async {
+      s3.reply(200, 'png bytes', <String, String>{
+        'content-length': '9',
+        'content-type': 'image/png',
+        'last-modified': 'Wed, 01 Jan 2025 10:00:00 GMT',
+        'etag': '"abc123"',
+      });
+      ObjectStream file = await diskWith(config())
+          .getStreamWithMetaData('a.png');
+      expect(s3.requests.single.method, 'GET');
+      expect(file.metaData.size, 9);
+      expect(file.metaData.contentType, 'image/png');
+      expect(file.metaData.lastModified, DateTime.utc(2025, 1, 1, 10));
+      expect(file.metaData.etag, 'abc123');
+      expect(
+        utf8.decode(await file.stream.expand((List<int> c) => c).toList()),
+        'png bytes',
+      );
+    });
+
+    test('getStreamWithMetaData of a missing file throws not found', () async {
+      s3.reply(404, '<Error><Code>NoSuchKey</Code></Error>');
+      await expectLater(
+        diskWith(config()).getStreamWithMetaData('gone.png'),
+        throwsA(isA<FileNotFoundException>()),
+      );
+      expect(s3.requests.single.method, 'GET');
     });
 
     test('getVisibility reads the ACL', () async {
@@ -464,16 +541,30 @@ void main() {
       expect(s3.requests[1].body, contains('<Key>p/1</Key>'));
     });
 
-    test('deleteAll follows pages and deletes markers from each', () async {
+    test('deleteAll deletes each page before it lists the next', () async {
       s3.reply(200, listPage(keys: <String>['p/', 'p/1'], next: 'tok'));
+      s3.reply(200, '<DeleteResult></DeleteResult>');
       s3.reply(200, listPage(keys: <String>['p/sub/', 'p/2']));
       s3.reply(200, '<DeleteResult></DeleteResult>');
       await diskWith(config()).deleteAll('p');
-      expect(s3.requests[1].url.queryParameters['continuation-token'], 'tok');
-      String body = s3.requests[2].body;
-      for (String key in <String>['p/', 'p/1', 'p/sub/', 'p/2']) {
-        expect(body, contains('<Key>$key</Key>'));
-      }
+      expect(s3.requests.map((http.Request r) => r.method), <String>[
+        'GET',
+        'POST',
+        'GET',
+        'POST',
+      ]);
+      expect(s3.requests[0].url.queryParameters['max-keys'], '1000');
+      expect(s3.requests[2].url.queryParameters['continuation-token'], 'tok');
+      expect(s3.requests[1].body, contains('<Key>p/</Key>'));
+      expect(s3.requests[1].body, contains('<Key>p/1</Key>'));
+      expect(s3.requests[3].body, contains('<Key>p/sub/</Key>'));
+      expect(s3.requests[3].body, contains('<Key>p/2</Key>'));
+    });
+
+    test('deleteAll of an empty prefix sends no delete', () async {
+      s3.reply(200, listPage(keys: <String>[]));
+      await diskWith(config()).deleteAll('p');
+      expect(s3.requests.single.method, 'GET');
     });
 
     test('deleteAll without batch support deletes one by one', () async {
@@ -494,8 +585,10 @@ void main() {
       ]);
     }
 
+    const int part = StorageConstants.minMultipartPartSize;
+
     test('small stream uses a single PUT', () async {
-      await diskWith(config(partSize: 10)).putStream('s.bin', bytes(6));
+      await diskWith(config(partSize: part)).putStream('s.bin', bytes(6));
       expect(s3.requests.single.method, 'PUT');
       expect(s3.requests.single.bodyBytes.length, 6);
     });
@@ -511,17 +604,25 @@ void main() {
       s3.reply(200, '', <String, String>{'etag': '"e3"'});
       s3.reply(200, '<CompleteMultipartUploadResult/>');
 
-      await diskWith(config(partSize: 10)).putStream('big.bin', bytes(25));
+      await diskWith(config(partSize: part))
+          .putStream('big.bin', bytes(2 * part + 5));
 
       List<String> calls = <String>[];
       for (http.Request r in s3.requests) {
         calls.add('${r.method} ${r.url.query} ${r.bodyBytes.length}');
       }
       expect(calls[0], startsWith('POST uploads='));
-      expect(calls[1], 'PUT partNumber=1&uploadId=U1 10');
-      expect(calls[2], 'PUT partNumber=2&uploadId=U1 10');
+      expect(calls[1], 'PUT partNumber=1&uploadId=U1 $part');
+      expect(calls[2], 'PUT partNumber=2&uploadId=U1 $part');
       expect(calls[3], 'PUT partNumber=3&uploadId=U1 5');
       expect(calls[4], startsWith('POST uploadId=U1'));
+      for (http.Request r in s3.requests.sublist(1, 4)) {
+        expect(
+          r.headers['x-amz-content-sha256'],
+          sha256.convert(r.bodyBytes).toString(),
+          reason: 'each part is hashed while it fills',
+        );
+      }
       expect(
         s3.requests[0].headers['content-type'],
         'application/octet-stream',
@@ -536,12 +637,99 @@ void main() {
       );
     });
 
+    // Runs a multipart upload and checks part count, part lengths and
+    // that each part hash is the SHA-256 of its bytes.
+    Future<void> expectParts(
+      Stream<List<int>> stream,
+      List<int> lengths,
+    ) async {
+      s3.reply(
+        200,
+        '<InitiateMultipartUploadResult><UploadId>U1</UploadId>'
+        '</InitiateMultipartUploadResult>',
+      );
+      for (int i = 0; i < lengths.length; i++) {
+        s3.reply(200, '', <String, String>{'etag': '"e$i"'});
+      }
+      s3.reply(200, '<CompleteMultipartUploadResult/>');
+      await diskWith(config(partSize: part)).putStream('big.bin', stream);
+      List<http.Request> parts = s3.requests.sublist(1, 1 + lengths.length);
+      expect(s3.requests.length, lengths.length + 2);
+      expect(parts.map((http.Request r) => r.bodyBytes.length), lengths);
+      for (http.Request r in parts) {
+        expect(
+          r.headers['x-amz-content-sha256'],
+          sha256.convert(r.bodyBytes).toString(),
+        );
+      }
+    }
+
+    test('one chunk of two parts makes two parts', () async {
+      await expectParts(Stream<List<int>>.value(Uint8List(2 * part)), <int>[
+        part,
+        part,
+      ]);
+    });
+
+    test('a stream of exactly two parts has no empty third part', () async {
+      await expectParts(
+        Stream<List<int>>.fromIterable(<List<int>>[
+          Uint8List(part),
+          Uint8List(part),
+        ]),
+        <int>[part, part],
+      );
+    });
+
+    test('a plain List<int> chunk is split and hashed right', () async {
+      await expectParts(
+        Stream<List<int>>.value(List<int>.filled(part + 7, 3)),
+        <int>[part, 7],
+      );
+    });
+
+    test(
+      'a chunk over 1 MiB is hashed in slices with the right hash',
+      () async {
+        Uint8List big = Uint8List(part + 1500000);
+        for (int i = 0; i < big.length; i++) {
+          big[i] = i % 251;
+        }
+        await expectParts(Stream<List<int>>.value(big), <int>[part, 1500000]);
+      },
+    );
+
+    test('an empty stream is one PUT with the empty hash', () async {
+      await diskWith(config())
+          .putStream('e.bin', const Stream<List<int>>.empty());
+      expect(s3.requests.single.method, 'PUT');
+      expect(s3.requests.single.bodyBytes, isEmpty);
+      expect(
+        s3.requests.single.headers['x-amz-content-sha256'],
+        StorageConstants.emptyPayloadHash,
+      );
+    });
+
+    test('unsignedPayload parts are not hashed', () async {
+      s3.reply(200, '<UploadId>U1</UploadId>');
+      s3.reply(200, '', <String, String>{'etag': '"e1"'});
+      s3.reply(200, '', <String, String>{'etag': '"e2"'});
+      await diskWith(config(partSize: part, unsignedPayload: true))
+          .putStream('big.bin', bytes(part + 3));
+      expect(s3.requests[1].bodyBytes.length, part);
+      expect(s3.requests[2].bodyBytes.length, 3);
+      for (http.Request r in s3.requests.sublist(1, 3)) {
+        expect(r.headers['x-amz-content-sha256'], 'UNSIGNED-PAYLOAD');
+      }
+    });
+
     test('a failed part aborts the upload', () async {
       s3.reply(200, '<UploadId>U1</UploadId>');
       s3.reply(500, '<Error><Code>InternalError</Code></Error>');
       s3.reply(204);
       await expectLater(
-        diskWith(config(partSize: 10)).putStream('big.bin', bytes(25)),
+        diskWith(config(partSize: part))
+            .putStream('big.bin', bytes(2 * part + 5)),
         throwsA(isA<DriverException>()),
       );
       expect(s3.requests.last.method, 'DELETE');
@@ -552,12 +740,12 @@ void main() {
       s3.reply(200, '<UploadId>U1</UploadId>');
       s3.reply(200, '', <String, String>{'etag': '"e1"'});
       Stream<List<int>> broken() async* {
-        yield Uint8List(12);
+        yield Uint8List(part + 2);
         throw StateError('source failed');
       }
 
       await expectLater(
-        diskWith(config(partSize: 10)).putStream('big.bin', broken()),
+        diskWith(config(partSize: part)).putStream('big.bin', broken()),
         throwsA(isA<DriverException>()),
       );
       expect(s3.requests.last.method, 'DELETE');

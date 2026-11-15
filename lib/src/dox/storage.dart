@@ -412,11 +412,11 @@ class Storage {
     String key = _key(filename);
     Disk target = use();
     try {
-      ObjectMetaData meta = await target.getMetaData(key);
+      ObjectStream file = await target.getStreamWithMetaData(key);
       return StreamFile(
-        ContentType.parse(meta.contentType),
-        await target.getStream(key),
-        length: meta.size,
+        ContentType.parse(file.metaData.contentType),
+        file.stream,
+        length: file.metaData.size,
       );
     } on FileNotFoundException {
       // the Dox error handler turns it into a 404 response

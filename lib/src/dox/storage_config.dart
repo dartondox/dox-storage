@@ -95,6 +95,7 @@ class StorageDiskFactory {
             visibility: _visibility(options['visibility'], Visibility.private),
             supportsAcl: options['acl'] as bool? ?? true,
             supportsBatchDelete: options['batch_delete'] as bool? ?? true,
+            unsignedPayload: options['unsigned_payload'] == true,
           ),
         );
       case 'memory':

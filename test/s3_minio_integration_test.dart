@@ -36,7 +36,11 @@ Future<bool> minioIsUp() async {
   }
 }
 
-S3Driver minioDriver({String? secret, int? partSize}) {
+S3Driver minioDriver({
+  String? secret,
+  int? partSize,
+  bool unsignedPayload = false,
+}) {
   return S3Driver(
     S3DriverConfig(
       bucket: bucket,
@@ -47,6 +51,7 @@ S3Driver minioDriver({String? secret, int? partSize}) {
       forcePathStyle: true,
       supportsAcl: false,
       multipartPartSize: partSize ?? StorageConstants.defaultMultipartPartSize,
+      unsignedPayload: unsignedPayload,
     ),
   );
 }
@@ -160,6 +165,66 @@ Future<void> main() async {
         // Multipart etags end with "-<parts>".
         expect(meta.etag, endsWith('-3'));
         expect(await disk.get('extras/big.bin'), data);
+      }, timeout: const Timeout(Duration(minutes: 2)));
+
+      test('unsignedPayload put and multipart upload', () async {
+        S3Driver unsigned = minioDriver(
+          partSize: StorageConstants.minMultipartPartSize,
+          unsignedPayload: true,
+        );
+        addTearDown(unsigned.close);
+        Disk fast = Disk(unsigned);
+        await fast.put('extras/unsigned.txt', 'no hash');
+        expect(await fast.getString('extras/unsigned.txt'), 'no hash');
+        int size = 6 * 1024 * 1024;
+        Uint8List data = Uint8List(size);
+        for (int i = 0; i < size; i++) {
+          data[i] = i % 253;
+        }
+        await fast.putStream(
+          'extras/unsigned.bin',
+          Stream<List<int>>.fromIterable(<List<int>>[
+            Uint8List.sublistView(data, 0, 4 * 1024 * 1024),
+            Uint8List.sublistView(data, 4 * 1024 * 1024),
+          ]),
+        );
+        expect(await fast.get('extras/unsigned.bin'), data);
+      }, timeout: const Timeout(Duration(minutes: 2)));
+
+      test('getStreamWithMetaData gives the same metadata as HEAD', () async {
+        await disk.put('extras/meta.json', '{"a":1}');
+        ObjectMetaData head = await disk.getMetaData('extras/meta.json');
+        ObjectStream file = await disk.getStreamWithMetaData(
+          'extras/meta.json',
+        );
+        expect(file.metaData.size, head.size);
+        expect(file.metaData.contentType, head.contentType);
+        expect(file.metaData.lastModified, head.lastModified);
+        expect(file.metaData.etag, head.etag);
+        expect(
+          await file.stream.fold<int>(0, (int n, List<int> c) => n + c.length),
+          7,
+        );
+        expect(
+          disk.getStreamWithMetaData('extras/missing.json'),
+          throwsA(isA<FileNotFoundException>()),
+        );
+      });
+
+      test('deleteAll deletes more than one page of keys', () async {
+        for (int i = 0; i < 1005; i += 15) {
+          List<Future<void>> puts = <Future<void>>[];
+          for (int j = i; j < i + 15 && j < 1005; j++) {
+            puts.add(
+              disk.put('extras/many/${j.toString().padLeft(4, '0')}', ''),
+            );
+          }
+          await Future.wait(puts);
+        }
+        await disk.put('extras/many-keep.txt', 'keep');
+        await disk.deleteAll('extras/many');
+        expect(await disk.allFiles('extras/many'), isEmpty);
+        expect(await disk.exists('extras/many-keep.txt'), isTrue);
       }, timeout: const Timeout(Duration(minutes: 2)));
 
       test('wrong secret gives PermissionDeniedException', () async {

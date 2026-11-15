@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import '../../clock.dart';
@@ -43,8 +45,15 @@ class S3Client {
     return Uri.parse(value);
   }
 
+  /// The bucket URL is the same for every call, so it is made once.
+  late final String _bucketUrl = _makeBucketUrl();
+
   /// URL of the bucket root, without query.
   String bucketUrl() {
+    return _bucketUrl;
+  }
+
+  String _makeBucketUrl() {
     Uri base = endpoint;
     if (config.forcePathStyle) {
       return '${base.scheme}://${base.authority}/${config.bucket}';
@@ -98,26 +107,72 @@ class S3Client {
     Uint8List? body,
   }) async {
     Uint8List payload = body ?? Uint8List(0);
-    String hash = payload.length < StorageConstants.isolateHashBytes
-        ? SigV4Signer.sha256Hex(payload)
-        : await Isolate.run(() => SigV4Signer.sha256Hex(payload));
-    Map<String, String> unsigned = <String, String>{
-      ...headers,
-      'x-amz-content-sha256': hash,
-    };
+    http.Request request = http.Request(method, uri);
+    request.headers.addAll(
+      _sign(method, uri, headers, await payloadHash(payload)),
+    );
+    request.bodyBytes = payload;
+    return httpClient.send(request);
+  }
+
+  /// Send a signed request whose body is [chunks], in order. The chunks
+  /// are sent as they are, with no copy. [hash] is the payload hash of
+  /// all chunks together (see [payloadHash]).
+  Future<http.Response> sendChunks(
+    String method,
+    Uri uri, {
+    Map<String, String> headers = const <String, String>{},
+    required List<Uint8List> chunks,
+    required String hash,
+  }) async {
+    http.StreamedRequest request = http.StreamedRequest(method, uri);
+    request.headers.addAll(_sign(method, uri, headers, hash));
+    int length = 0;
+    for (Uint8List chunk in chunks) {
+      length += chunk.length;
+      request.sink.add(chunk);
+    }
+    request.contentLength = length;
+    unawaited(request.sink.close());
+    return http.Response.fromStream(await httpClient.send(request));
+  }
+
+  /// Signed headers for a request, without `host`.
+  Map<String, String> _sign(
+    String method,
+    Uri uri,
+    Map<String, String> headers,
+    String hash,
+  ) {
     Map<String, String> signed = signer.sign(
       method: method,
       uri: uri,
       now: clock.now(),
-      headers: unsigned,
+      headers: <String, String>{...headers, 'x-amz-content-sha256': hash},
       payloadHash: hash,
     );
     // The HTTP client sets Host itself from the URL.
     signed.remove('host');
-    http.Request request = http.Request(method, uri);
-    request.headers.addAll(signed);
-    request.bodyBytes = payload;
-    return httpClient.send(request);
+    return signed;
+  }
+
+  /// The `x-amz-content-sha256` value for [body].
+  ///
+  /// An empty body uses the known empty hash. With
+  /// [S3DriverConfig.unsignedPayload] on, it is `UNSIGNED-PAYLOAD`. A body
+  /// of [StorageConstants.isolateHashBytes] or more is hashed in another
+  /// isolate, so the event loop is not blocked.
+  Future<String> payloadHash(Uint8List body) async {
+    if (body.isEmpty) {
+      return StorageConstants.emptyPayloadHash;
+    }
+    if (config.unsignedPayload) {
+      return StorageConstants.unsignedPayload;
+    }
+    if (body.length < StorageConstants.isolateHashBytes) {
+      return SigV4Signer.sha256Hex(body);
+    }
+    return Isolate.run(() => SigV4Signer.sha256Hex(body));
   }
 
   /// Throw unless the status is 2xx.
@@ -162,4 +217,42 @@ class S3Client {
   Future<String> readBody(http.StreamedResponse response) async {
     return utf8.decode(await response.stream.toBytes(), allowMalformed: true);
   }
+}
+
+/// SHA-256 of a body that comes in chunks. Each chunk is hashed when it
+/// is added, so the body is never read twice.
+class PayloadHasher {
+  // Only gets the result; [close] closes the input that feeds it.
+  // ignore: close_sinks
+  final _DigestSink _digest = _DigestSink();
+  late final ByteConversionSink _input = sha256.startChunkedConversion(_digest);
+  int _length = 0;
+
+  /// Hash the next chunk.
+  void add(List<int> chunk) {
+    _length += chunk.length;
+    _input.add(chunk);
+  }
+
+  /// Lowercase hex hash of all chunks. An empty body gives the known
+  /// empty hash.
+  String close() {
+    if (_length == 0) {
+      return StorageConstants.emptyPayloadHash;
+    }
+    _input.close();
+    return _digest.value.toString();
+  }
+}
+
+class _DigestSink implements Sink<Digest> {
+  late Digest value;
+
+  @override
+  void add(Digest data) {
+    value = data;
+  }
+
+  @override
+  void close() {}
 }

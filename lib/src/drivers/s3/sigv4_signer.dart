@@ -263,8 +263,10 @@ class SigV4Signer {
 
   /// Trim and collapse inner spaces, as SigV4 asks.
   String _trim(String value) {
-    return value.trim().replaceAll(RegExp(r'\s+'), ' ');
+    return value.trim().replaceAll(_spaces, ' ');
   }
+
+  static final RegExp _spaces = RegExp(r'\s+');
 
   String _date(DateTime now) {
     DateTime utc = now.toUtc();

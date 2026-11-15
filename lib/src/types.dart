@@ -70,6 +70,14 @@ class ObjectMetaData {
   }
 }
 
+/// A file as a stream, with its [metaData].
+class ObjectStream {
+  final Stream<List<int>> stream;
+  final ObjectMetaData metaData;
+
+  const ObjectStream(this.stream, this.metaData);
+}
+
 /// One entry in a listing: a file or a folder.
 sealed class DriveEntry {
   /// Full key (file) or full prefix without trailing slash (folder).

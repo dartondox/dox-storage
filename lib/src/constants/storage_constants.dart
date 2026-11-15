@@ -18,6 +18,9 @@ class StorageConstants {
   /// Smallest part size S3 accepts (all parts except the last one).
   static const int minMultipartPartSize = 5 * 1024 * 1024;
 
+  /// Biggest part size S3 accepts.
+  static const int maxMultipartPartSize = 5 * 1024 * 1024 * 1024;
+
   /// S3 allows at most 10,000 parts. With 8 MiB parts that is about 78 GiB.
   static const int maxMultipartParts = 10000;
 
