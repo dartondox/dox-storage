@@ -637,6 +637,68 @@ void main() {
       );
     });
 
+    // Runs a multipart upload and checks part count, part lengths and
+    // that each part hash is the SHA-256 of its bytes.
+    Future<void> expectParts(
+      Stream<List<int>> stream,
+      List<int> lengths,
+    ) async {
+      s3.reply(
+        200,
+        '<InitiateMultipartUploadResult><UploadId>U1</UploadId>'
+        '</InitiateMultipartUploadResult>',
+      );
+      for (int i = 0; i < lengths.length; i++) {
+        s3.reply(200, '', <String, String>{'etag': '"e$i"'});
+      }
+      s3.reply(200, '<CompleteMultipartUploadResult/>');
+      await diskWith(config(partSize: part)).putStream('big.bin', stream);
+      List<http.Request> parts = s3.requests.sublist(1, 1 + lengths.length);
+      expect(s3.requests.length, lengths.length + 2);
+      expect(parts.map((http.Request r) => r.bodyBytes.length), lengths);
+      for (http.Request r in parts) {
+        expect(
+          r.headers['x-amz-content-sha256'],
+          sha256.convert(r.bodyBytes).toString(),
+        );
+      }
+    }
+
+    test('one chunk of two parts makes two parts', () async {
+      await expectParts(Stream<List<int>>.value(Uint8List(2 * part)), <int>[
+        part,
+        part,
+      ]);
+    });
+
+    test('a stream of exactly two parts has no empty third part', () async {
+      await expectParts(
+        Stream<List<int>>.fromIterable(<List<int>>[
+          Uint8List(part),
+          Uint8List(part),
+        ]),
+        <int>[part, part],
+      );
+    });
+
+    test('a plain List<int> chunk is split and hashed right', () async {
+      await expectParts(
+        Stream<List<int>>.value(List<int>.filled(part + 7, 3)),
+        <int>[part, 7],
+      );
+    });
+
+    test(
+      'a chunk over 1 MiB is hashed in slices with the right hash',
+      () async {
+        Uint8List big = Uint8List(part + 1500000);
+        for (int i = 0; i < big.length; i++) {
+          big[i] = i % 251;
+        }
+        await expectParts(Stream<List<int>>.value(big), <int>[part, 1500000]);
+      },
+    );
+
     test('an empty stream is one PUT with the empty hash', () async {
       await diskWith(config())
           .putStream('e.bin', const Stream<List<int>>.empty());

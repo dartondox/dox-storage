@@ -99,10 +99,26 @@ class S3PartBuffer {
   S3PartBuffer({required bool unsignedPayload})
     : _hasher = unsignedPayload ? null : PayloadHasher();
 
-  void add(Uint8List chunk) {
+  /// Add a chunk. A chunk over 1 MiB is hashed in slices of 1 MiB. The
+  /// code lets other work run between slices, so a big chunk does not
+  /// block the isolate for long.
+  Future<void> add(Uint8List chunk) async {
     chunks.add(chunk);
     length += chunk.length;
-    _hasher?.add(chunk);
+    PayloadHasher? hasher = _hasher;
+    if (hasher == null) {
+      return;
+    }
+    const int slice = 1024 * 1024;
+    if (chunk.length <= slice) {
+      hasher.add(chunk);
+      return;
+    }
+    for (int start = 0; start < chunk.length; start += slice) {
+      int end = start + slice < chunk.length ? start + slice : chunk.length;
+      hasher.add(Uint8List.sublistView(chunk, start, end));
+      await Future<void>.delayed(Duration.zero);
+    }
   }
 
   /// The `x-amz-content-sha256` value. Call it once, when the part is full.

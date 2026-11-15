@@ -92,7 +92,8 @@ class Disk {
 
   /// A file as a stream, with its metadata. On S3 this is one GET
   /// request, not a HEAD and a GET. On other disks it is [getMetaData]
-  /// and then [getStream].
+  /// and then [getStream]. A driver subclass that overrides [getStream]
+  /// or [getMetaData] should also override [getStreamWithMetaData].
   Future<ObjectStream> getStreamWithMetaData(String key) async {
     String k = normalizer.key(key);
     DriverContract target = driver;

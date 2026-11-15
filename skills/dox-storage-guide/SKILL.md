@@ -201,4 +201,5 @@ All errors extend `StorageException` (it has `key`, `message`, `cause`):
 - Local `setVisibility` needs the `permissions` option. With `'acl': false` on S3 it does nothing.
 - Local `atomic_writes: true` writes a temp file and renames it, so a failed upload leaves no partial file. It is off by default.
 - `copy` and `move` replace a file that is already at the target.
+- S3 `putStream` hashes each part in pure Dart (about 6.5 ms per MiB), so a very large upload uses CPU of the request isolate, in small steps. Over HTTPS, `unsignedPayload: true` removes the cost.
 - S3 signing is built in. Do not add the AWS SDK.

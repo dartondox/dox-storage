@@ -256,7 +256,7 @@ class S3Driver implements DriverContract {
             : Uint8List.fromList(chunk);
         while (part.length + bytes.length >= partSize) {
           int take = partSize - part.length;
-          part.add(Uint8List.sublistView(bytes, 0, take));
+          await part.add(Uint8List.sublistView(bytes, 0, take));
           bytes = Uint8List.sublistView(bytes, take);
           upload ??= await S3MultipartUpload.start(
             client,
@@ -267,7 +267,7 @@ class S3Driver implements DriverContract {
           part = _newPart();
         }
         if (bytes.isNotEmpty) {
-          part.add(bytes);
+          await part.add(bytes);
         }
       }
       if (upload == null) {
