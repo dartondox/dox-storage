@@ -321,6 +321,7 @@ void main() {
       );
       Disk disk = diskWith(config());
       expect(await disk.directoryExists('photos'), isTrue);
+      expect(s3.requests.single.url.queryParameters['prefix'], 'photos/');
       expect(s3.requests.single.url.queryParameters['max-keys'], '1');
     });
 
@@ -461,6 +462,18 @@ void main() {
       await diskWith(config()).deleteAll('p');
       expect(s3.requests[1].body, contains('<Key>p/</Key>'));
       expect(s3.requests[1].body, contains('<Key>p/1</Key>'));
+    });
+
+    test('deleteAll follows pages and deletes markers from each', () async {
+      s3.reply(200, listPage(keys: <String>['p/', 'p/1'], next: 'tok'));
+      s3.reply(200, listPage(keys: <String>['p/sub/', 'p/2']));
+      s3.reply(200, '<DeleteResult></DeleteResult>');
+      await diskWith(config()).deleteAll('p');
+      expect(s3.requests[1].url.queryParameters['continuation-token'], 'tok');
+      String body = s3.requests[2].body;
+      for (String key in <String>['p/', 'p/1', 'p/sub/', 'p/2']) {
+        expect(body, contains('<Key>$key</Key>'));
+      }
     });
 
     test('deleteAll without batch support deletes one by one', () async {

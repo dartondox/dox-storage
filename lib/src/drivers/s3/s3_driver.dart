@@ -359,7 +359,7 @@ class S3Driver implements DriverContract {
       'GET',
       client.bucketUri(<String, String>{
         'list-type': '2',
-        'prefix': '$prefix/',
+        'prefix': prefix.isEmpty ? '' : '$prefix/',
         'max-keys': '1',
       }),
     );
