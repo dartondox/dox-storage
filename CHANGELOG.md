@@ -1,4 +1,4 @@
-## Unreleased
+## 3.2.2
 
 - Fix: on S3, `directoryExists` said false for an empty folder made in the S3 console ("Create folder"). It also said false when the folder marker came first and the files after it. It now looks for any key under the folder, marker included. `listAll` still hides markers.
 - Fix: on S3, `deleteDirectory` and `deleteAll` left the folder marker behind, so the folder still existed. They now delete the marker too.
