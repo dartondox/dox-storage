@@ -3,6 +3,7 @@ import 'dart:io' show HttpDate, stderr;
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:dox_http_client/http.dart';
 import 'package:http/http.dart' as http;
 import 'package:mime/mime.dart';
 
@@ -21,7 +22,8 @@ class S3Driver implements DriverContract {
   final S3DriverConfig config;
   final S3Client client;
 
-  /// Pass [httpClient] to reuse a client or to mock S3 in tests.
+  /// Pass [httpClient] to reuse a client or to mock S3 in tests. With
+  /// none, the driver uses the native client of `dox_http_client`.
   ///
   /// When [S3DriverConfig.multipartPartSize] is not from 5 MiB to 5 GiB,
   /// it does not throw, so an app that only uploads small files keeps
@@ -33,7 +35,7 @@ class S3Driver implements DriverContract {
     StringSink? warnings,
   }) : client = S3Client(
          config,
-         httpClient: httpClient ?? http.Client(),
+         httpClient: httpClient ?? DoxHttpPackageClient(),
          clock: clock,
        ) {
     int size = config.multipartPartSize;

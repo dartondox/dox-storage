@@ -1,3 +1,7 @@
+## Unreleased
+
+- Faster: the S3 driver sends through the native client of [dox_http_client](https://pub.dev/packages/dox_http_client). It uses HTTP/2 when the server has it. An `httpClient` that you pass is used as before.
+
 ## 3.2.2
 
 - Fix: on S3, `directoryExists` said false for an empty folder made in the S3 console ("Create folder"). It also said false when the folder marker came first and the files after it. It now looks for any key under the folder, marker included. `listAll` still hides markers.
