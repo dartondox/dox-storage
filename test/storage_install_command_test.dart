@@ -93,6 +93,28 @@ void main() {
     expect(read('.env'), contains('AWS_BUCKET=\n'));
   });
 
+  test('azure adds its disk, getters and keys', () async {
+    await install(<String>['--disk=azure']);
+    expect(exitCode, 0);
+    expect(read('lib/config/storage.dart'), contains("'driver': 'azure'"));
+    expect(
+      read('lib/config/storage.dart'),
+      contains('if (env.azureStorageContainer != null)'),
+    );
+    expect(
+      read('lib/config/env.dart'),
+      contains('String? get azureStorageContainer;'),
+    );
+    expect(
+      read('lib/config/env.dart'),
+      contains('/// local, s3, azure or memory'),
+    );
+    expect(read('.env'), contains('STORAGE_DISK=local\n'));
+    expect(read('.env'), contains('AZURE_STORAGE_ACCOUNT=\n'));
+    expect(read('.env'), contains('AZURE_STORAGE_ENDPOINT=\n'));
+    expect(read('.env'), isNot(contains('AWS_')));
+  });
+
   test('a second run changes nothing', () async {
     await install(<String>['--disk', 's3']);
     File('${root.path}/lib/config/storage.dart').writeAsStringSync('mine');
@@ -104,6 +126,7 @@ void main() {
   test('a bad option stops with exit code 1 and writes nothing', () async {
     for (List<String> args in <List<String>>[
       <String>['--disk=gcs'],
+      <String>['--disk=Azure'],
       <String>['--dsk=s3'],
       <String>['--disk'],
       <String>['--disk='],

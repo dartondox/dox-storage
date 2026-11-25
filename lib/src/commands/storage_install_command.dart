@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:dox_annotation/install.dart';
 import 'package:dox_core/command.dart';
 
-/// `dox storage:install [--disk=local|s3]`. `dox add storage` runs it. It
+/// `dox storage:install [--disk=local|s3|azure]`. `dox add storage` runs it. It
 /// sets up the storage config, the provider, the `storage` folder and the
 /// `.env` keys. It never overwrites a file, so it is safe to run twice.
 class StorageInstallCommand extends Command {
@@ -14,7 +14,7 @@ class StorageInstallCommand extends Command {
   final Directory? root;
   final ProcessRunner? runner;
 
-  static const List<String> disks = <String>['local', 's3'];
+  static const List<String> disks = <String>['local', 's3', 'azure'];
 
   @override
   String get name => 'storage:install';
@@ -23,14 +23,14 @@ class StorageInstallCommand extends Command {
   String get description => 'Set up file storage in this app';
 
   @override
-  String get usage => 'storage:install [--disk=local|s3]';
+  String get usage => 'storage:install [--disk=local|s3|azure]';
 
   @override
   Future<void> run(List<String> args) async {
     String? disk = _disk(args);
     if (disk == null) {
       print(
-        'Unknown option. Use --disk=local or --disk=s3 '
+        'Unknown option. Use --disk=local, --disk=s3 or --disk=azure '
         '(local when not given).',
       );
       exitCode = 1;
@@ -75,6 +75,11 @@ class StorageInstallCommand extends Command {
             '.env (and AWS_ENDPOINT for R2, MinIO or Spaces). Then set '
             'STORAGE_DISK=s3. It is `local` now, so the app starts before '
             'you fill them in.',
+      if (disk == 'azure')
+        'Fill in AZURE_STORAGE_ACCOUNT, AZURE_STORAGE_KEY and '
+            'AZURE_STORAGE_CONTAINER in .env (and AZURE_STORAGE_ENDPOINT for '
+            'Azurite). Then set STORAGE_DISK=azure. It is `local` now, so '
+            'the app starts before you fill them in.',
       if (!config.contains("'driver': '$disk'"))
         "lib/config/storage.dart has no '$disk' disk. Add one, see the "
             'file storage docs.',
@@ -101,7 +106,7 @@ class StorageInstallCommand extends Command {
   /// the getters of `AppEnv` that `lib/config/storage.dart` reads
   static List<String> envGetters(String disk) {
     return <String>[
-      '/// local, s3 or memory\n'
+      '/// local, s3, azure or memory\n'
           "  String get storageDisk => 'local';",
       if (disk == 's3') ...<String>[
         'String? get awsBucket;',
@@ -110,6 +115,14 @@ class StorageInstallCommand extends Command {
         'String? get awsSecretAccessKey;',
         '/// R2, MinIO or Spaces. Null for AWS.\n'
             '  String? get awsEndpoint;',
+      ],
+      if (disk == 'azure') ...<String>[
+        'String? get azureStorageAccount;',
+        'String? get azureStorageKey;',
+        'String? get azureStorageContainer;',
+        '/// Azurite or a custom domain. Null for Azure.\n'
+            '  String? get azureStorageEndpoint;',
+        'String? get azureStorageUrl;',
       ],
     ];
   }
@@ -125,11 +138,18 @@ class StorageInstallCommand extends Command {
         'AWS_SECRET_ACCESS_KEY': '',
         'AWS_ENDPOINT': '',
       },
+      if (disk == 'azure') ...<String, String>{
+        'AZURE_STORAGE_ACCOUNT': '',
+        'AZURE_STORAGE_KEY': '',
+        'AZURE_STORAGE_CONTAINER': '',
+        'AZURE_STORAGE_ENDPOINT': '',
+        'AZURE_STORAGE_URL': '',
+      },
     };
   }
 
   /// `lib/config/storage.dart`, the same as the app template. The `s3`
-  /// disk is added when [disk] is `s3`.
+  /// or `azure` disk is added when [disk] is that disk.
   static String storageConfig(String app, String disk) {
     return '''
 import 'package:dox_storage/dox_storage.dart';
@@ -138,14 +158,14 @@ import 'package:$app/config/env.dart';
 /// Storage disks
 /// -------------------------------
 /// `Storage()` uses the default disk. `Storage().disk('local')` picks one.
-/// Drivers: local, s3 (also R2, MinIO, Spaces), memory.
+/// Drivers: local, s3 (also R2, MinIO, Spaces), azure, memory.
 StorageConfig storageConfig = StorageConfig(
   defaultDisk: env.storageDisk,
   disks: <String, Map<String, dynamic>>{
     /// files in the `storage/app` folder. Keep it apart from `storage/cache`,
     /// so an unsigned file route can not serve cache entries
     'local': <String, dynamic>{'driver': 'local', 'root': 'storage/app'},
-${disk == 's3' ? _s3Disk : ''}  },
+${disk == 's3' ? _s3Disk : ''}${disk == 'azure' ? _azureDisk : ''}  },
 );
 ''';
   }
@@ -161,6 +181,20 @@ ${disk == 's3' ? _s3Disk : ''}  },
         'key': env.awsAccessKeyId,
         'secret': env.awsSecretAccessKey,
         'endpoint': env.awsEndpoint, // R2, MinIO, Spaces
+      },
+''';
+
+  static const String _azureDisk = '''
+
+    /// only when AZURE_STORAGE_CONTAINER is set
+    if (env.azureStorageContainer != null)
+      'azure': <String, dynamic>{
+        'driver': 'azure',
+        'account': env.azureStorageAccount,
+        'key': env.azureStorageKey,
+        'container': env.azureStorageContainer,
+        'endpoint': env.azureStorageEndpoint, // Azurite, custom domain
+        'url': env.azureStorageUrl,
       },
 ''';
 
