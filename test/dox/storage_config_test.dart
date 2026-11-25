@@ -42,6 +42,30 @@ void main() {
       });
     }
 
+    test('azure reads its settings', () {
+      AzureBlobDriver driver = factory.driver('a', <String, dynamic>{
+        'driver': 'azure',
+        'account': 'acc',
+        'key': 'a2V5',
+        'container': 'files',
+        'endpoint': 'http://127.0.0.1:10000/acc',
+        'url': 'https://cdn.test',
+      }) as AzureBlobDriver;
+      expect(driver.config.accountName, 'acc');
+      expect(driver.config.container, 'files');
+      expect(driver.client.containerUrl, 'http://127.0.0.1:10000/acc/files');
+      expect(driver.config.urlBase, 'https://cdn.test');
+      for (String key in <String>['account', 'key', 'container']) {
+        Map<String, dynamic> options = <String, dynamic>{
+          'driver': 'azure',
+          'account': 'acc',
+          'key': 'a2V5',
+          'container': 'files',
+        }..remove(key);
+        expect(() => factory.driver('a', options), throwsArgumentError);
+      }
+    });
+
     test('s3 with an empty value is missing too', () {
       Map<String, dynamic> options = <String, dynamic>{...s3, 'bucket': ''};
       expect(() => factory.driver('s3', options), throwsArgumentError);

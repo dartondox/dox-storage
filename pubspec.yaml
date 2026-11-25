@@ -1,5 +1,5 @@
 name: dox_storage
-description: File storage for the Dox framework. One API for local disk, AWS S3 and S3-compatible services (R2, MinIO, Spaces), with swappable drivers.
+description: File storage for the Dox framework. One API for local disk, AWS S3, S3-compatible services (R2, MinIO, Spaces) and Azure Blob Storage, with swappable drivers.
 version: 3.2.3
 repository: https://github.com/dartondox/dox-storage
 homepage: https://dartondox.dev
@@ -25,6 +25,9 @@ dev_dependencies:
 dox:
   commands: package:dox_storage/commands.dart
 
-# Public AWS example keys used by the SigV4 test vectors.
+# Public AWS example keys used by the SigV4 test vectors, and the public
+# Azurite dev account key.
 false_secrets:
   - /test/fixtures/sigv4_vectors.json
+  - /test/azure_shared_key_signer_test.dart
+  - /test/azure_azurite_integration_test.dart
