@@ -26,6 +26,10 @@ class AzureBlobDriverConfig {
   /// per block and 50,000 blocks per blob.
   final int blockSize;
 
+  /// How long `copy` waits for a pending Copy Blob. Then the copy is
+  /// aborted and `copy` throws.
+  final Duration copyTimeout;
+
   const AzureBlobDriverConfig({
     required this.accountName,
     required this.accountKey,
@@ -33,5 +37,6 @@ class AzureBlobDriverConfig {
     this.endpoint,
     this.urlBase,
     this.blockSize = StorageConstants.azureDefaultBlockSize,
+    this.copyTimeout = StorageConstants.azureDefaultCopyTimeout,
   });
 }

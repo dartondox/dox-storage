@@ -54,6 +54,12 @@ class StorageConstants {
   /// Biggest block Azure accepts (4000 MiB).
   static const int azureMaxBlockSize = 4000 * 1024 * 1024;
 
+  /// How long Azure `copy` waits for a pending Copy Blob by default.
+  static const Duration azureDefaultCopyTimeout = Duration(minutes: 5);
+
+  /// Time between checks of a pending Azure Copy Blob.
+  static const Duration azureCopyPollInterval = Duration(milliseconds: 200);
+
   /// Blobs deleted at the same time by Azure `deleteAll`.
   static const int azureDeleteConcurrency = 16;
 

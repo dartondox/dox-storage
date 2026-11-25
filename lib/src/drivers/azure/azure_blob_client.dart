@@ -142,6 +142,17 @@ class AzureBlobClient {
     }
   }
 
+  /// True when the response is a 404 for a missing blob. A missing
+  /// container is not a missing blob.
+  bool blobMissing(http.Response response) {
+    return response.statusCode == 404 &&
+        _code(response.headers, text(response)) != 'ContainerNotFound';
+  }
+
+  String? _code(Map<String, String> headers, String body) {
+    return headers['x-ms-error-code'] ?? xml.first(body, 'Code');
+  }
+
   /// Map an Azure error response to a storage exception. A HEAD error
   /// has no body, so the code also comes from `x-ms-error-code`.
   Never fail(
@@ -150,7 +161,7 @@ class AzureBlobClient {
     String key, [
     Map<String, String> headers = const <String, String>{},
   ]) {
-    String? code = headers['x-ms-error-code'] ?? xml.first(body, 'Code');
+    String? code = _code(headers, body);
     String? message = xml.first(body, 'Message');
     String detail =
         'Azure $status${code == null ? '' : ' $code'}'

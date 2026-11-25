@@ -68,7 +68,7 @@ class AzureBlobDriver implements DriverContract {
   @override
   Future<bool> exists(String key) async {
     http.Response response = await client.send('HEAD', client.blobUri(key));
-    if (response.statusCode == 404) {
+    if (client.blobMissing(response)) {
       return false;
     }
     client.check(response, key);
@@ -263,12 +263,21 @@ class AzureBlobDriver implements DriverContract {
         'x-ms-copy-source': client.blobUri(source).toString(),
       },
     );
-    client.check(response, source);
+    // A 404 is about the source. Other errors are about the destination.
+    client.check(response, response.statusCode == 404 ? source : destination);
     String? status = response.headers['x-ms-copy-status'];
-    // ponytail: a copy inside one account is usually done at once. A
-    // pending copy is polled every 200 ms with no time limit.
+    // A copy inside one account is usually done at once. A pending copy is
+    // polled until it ends or copyTimeout runs out, then it is aborted.
+    Stopwatch waited = Stopwatch()..start();
     while (status == 'pending') {
-      await Future<void>.delayed(const Duration(milliseconds: 200));
+      if (waited.elapsed >= config.copyTimeout) {
+        await _abortCopy(destination, response.headers['x-ms-copy-id']);
+        throw DriverException(
+          destination,
+          'Azure copy was still pending after ${config.copyTimeout}',
+        );
+      }
+      await Future<void>.delayed(StorageConstants.azureCopyPollInterval);
       http.Response head = await client.send(
         'HEAD',
         client.blobUri(destination),
@@ -277,7 +286,10 @@ class AzureBlobDriver implements DriverContract {
       status = head.headers['x-ms-copy-status'];
     }
     if (status != null && status != 'success') {
-      throw DriverException(source, 'Azure copy ended with status $status');
+      throw DriverException(
+        destination,
+        'Azure copy ended with status $status',
+      );
     }
     String? contentType = options.contentType;
     if (contentType != null) {
@@ -290,6 +302,24 @@ class AzureBlobDriver implements DriverContract {
       );
       client.check(set, destination);
     }
+  }
+
+  /// Abort Copy Blob. A failed abort is ignored: the timeout error is
+  /// the one that matters.
+  Future<void> _abortCopy(String destination, String? copyId) async {
+    if (copyId == null) {
+      return;
+    }
+    try {
+      await client.send(
+        'PUT',
+        client.blobUri(destination, <String, String>{
+          'comp': 'copy',
+          'copyid': copyId,
+        }),
+        headers: <String, String>{'x-ms-copy-action': 'abort'},
+      );
+    } catch (_) {}
   }
 
   @override
@@ -312,7 +342,7 @@ class AzureBlobDriver implements DriverContract {
       client.blobUri(key),
       headers: <String, String>{'x-ms-delete-snapshots': 'include'},
     );
-    if (response.statusCode == 404) {
+    if (client.blobMissing(response)) {
       return;
     }
     client.check(response, key);
@@ -359,11 +389,13 @@ class AzureBlobDriver implements DriverContract {
         recursive: options.recursive,
         markers: false,
         marker: marker,
-        maxResults: limit ?? 5000,
+        maxResults: limit == null ? 5000 : limit - entries.length,
       );
       entries.addAll(page.entries);
       marker = page.marker;
-      if (marker == null || limit != null) {
+      // Hidden folder markers (`dir/`) can leave a page short or empty,
+      // so keep going until the page is full.
+      if (marker == null || (limit != null && entries.length >= limit)) {
         break;
       }
     }
@@ -398,20 +430,29 @@ class AzureBlobDriver implements DriverContract {
     client.check(response, prefix);
     String body = client.text(response);
     List<DriveEntry> entries = <DriveEntry>[];
-    // ponytail: a name with characters XML can not hold comes back with
-    // Encoded="true" (percent-encoded) and is not decoded here.
     for (String item in client.xml.all(body, 'Blob')) {
-      String key = client.xml.first(item, 'Name')!;
+      String key = _name(item);
       if (markers || !key.endsWith('/')) {
         entries.add(DriveFile(key));
       }
     }
     for (String item in client.xml.all(body, 'BlobPrefix')) {
-      String folder = client.xml.first(item, 'Name')!;
+      String folder = _name(item);
       entries.add(DriveDirectory(folder.substring(0, folder.length - 1)));
     }
     String? next = client.xml.first(body, 'NextMarker');
     return _Page(entries, next == null || next.isEmpty ? null : next);
+  }
+
+  /// The `<Name>` of a `<Blob>` or `<BlobPrefix>`. A name with
+  /// characters XML can not hold comes percent-encoded, with
+  /// `Encoded="true"`.
+  String _name(String item) {
+    String name = client.xml.first(item, 'Name')!;
+    if (item.contains('<Name Encoded="true">')) {
+      return Uri.decodeComponent(name);
+    }
+    return name;
   }
 
   static int _compareKeys(DriveEntry a, DriveEntry b) {

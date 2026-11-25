@@ -149,7 +149,7 @@ The integration tests of the Azure driver use Azurite, the Azure Storage emulato
 
    ```bash
    docker run -d --rm --name dox-storage-azurite -p 10000:10000 \
-     mcr.microsoft.com/azure-storage/azurite \
+     mcr.microsoft.com/azure-storage/azurite:3.38.0 \
      azurite-blob --blobHost 0.0.0.0 --skipApiVersionCheck --loose
    ```
 

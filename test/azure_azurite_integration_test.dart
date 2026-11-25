@@ -14,7 +14,7 @@ import 'support/disk_contract.dart';
 /// Runs against a real Azurite. Start it with:
 ///
 /// docker run -d --rm --name dox-storage-azurite -p 10000:10000 \
-///   mcr.microsoft.com/azure-storage/azurite \
+///   mcr.microsoft.com/azure-storage/azurite:3.38.0 \
 ///   azurite-blob --blobHost 0.0.0.0 --skipApiVersionCheck --loose
 ///
 /// Skipped when Azurite is not reachable, but fails when CI=true. Override
@@ -222,6 +222,19 @@ Future<void> main() async {
         expect(seen, hasLength(7));
         expect(pages, 3);
         expect((await disk.listAll('extras/pages')).objects, hasLength(7));
+      });
+
+      test('a folder marker blob does not hide the folder', () async {
+        // Portal and Storage Explorer make empty `dir/` blobs like this.
+        // Disk would strip the trailing slash, so the driver writes it.
+        await driver.put('extras/marked/', Uint8List(0), const WriteOptions());
+        await disk.put('extras/marked/a.txt', 'a');
+        expect(await disk.directoryExists('extras/marked'), isTrue);
+        ListResult result = await disk.listAll(
+          'extras/marked',
+          const ListOptions(limit: 1),
+        );
+        expect(result.objects.single.key, 'extras/marked/a.txt');
       });
 
       test('copy keeps or changes the content type', () async {
