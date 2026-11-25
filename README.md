@@ -114,6 +114,7 @@ The driver does not create the container. Create the container before you use th
 - `endpoint`: the URL of the blob service, without the container. The default is `https://<accountName>.blob.core.windows.net`. For Azurite, use `http://127.0.0.1:10000/devstoreaccount1`.
 - `urlBase`: the base of the URLs that `getUrl` returns, for example a CDN. The default is the container URL.
 - `blockSize`: the size in bytes of one block of `putStream`. The default is 8 MiB. It must be from 1 byte to 4000 MiB, or the driver throws `ArgumentError`.
+- `copyTimeout`: how long `copy` and `move` wait for a pending copy. The default is 5 minutes. When the time ends, the driver stops the copy and throws `DriverException`.
 
 ### Azure disk in a Dox app
 
