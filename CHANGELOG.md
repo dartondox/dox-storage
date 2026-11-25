@@ -1,5 +1,6 @@
 ## Unreleased
 
+- New: `dox storage:install --disk=azure` (and `dox add storage --disk=azure`) adds the `azure` disk, the `AppEnv` getters and the `AZURE_STORAGE_*` keys. The disk is added only when `AZURE_STORAGE_CONTAINER` is set. The skill guide now covers Azure.
 - New: `AzureBlobDriver` and `AzureBlobDriverConfig` for Azure Blob Storage and Azurite. In a Dox app, use `'driver': 'azure'` with `account`, `key` and `container`. `endpoint` and `url` are optional. Shared Key and SAS signatures are written in this package, so there is no Azure SDK dependency.
   - Azure sets public access for each container. `getVisibility` returns the level of the container, `setVisibility` throws `UnsupportedOperationException`, and the `visibility` of `WriteOptions` is ignored.
   - For a signed upload URL, the client must send the header `x-ms-blob-type: BlockBlob` with the PUT.
