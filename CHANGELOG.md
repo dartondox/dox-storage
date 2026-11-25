@@ -1,3 +1,12 @@
+## Unreleased
+
+- New: `AzureBlobDriver` and `AzureBlobDriverConfig` for Azure Blob Storage and Azurite. In a Dox app, use `'driver': 'azure'` with `account`, `key` and `container`. `endpoint` and `url` are optional. Shared Key and SAS signatures are written in this package, so there is no Azure SDK dependency.
+  - Azure sets public access for each container. `getVisibility` returns the level of the container, `setVisibility` throws `UnsupportedOperationException`, and the `visibility` of `WriteOptions` is ignored.
+  - For a signed upload URL, the client must send the header `x-ms-blob-type: BlockBlob` with the PUT.
+  - `putStream` sends one Put Blob request for a stream smaller than `blockSize` (8 MiB by default). A larger stream goes up as blocks, with one block in memory at a time.
+- Changed: the MinIO and Azurite integration tests fail when `CI=true` and the service is down. On your machine they still skip.
+- Changed: CI starts Azurite and runs the Azure Blob tests.
+
 ## 3.2.3
 
 - Faster: the S3 driver sends through the native client of [dox_http_client](https://pub.dev/packages/dox_http_client). It uses HTTP/2 when the server has it. An `httpClient` that you pass is used as before.

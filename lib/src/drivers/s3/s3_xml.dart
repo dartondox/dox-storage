@@ -1,14 +1,18 @@
-/// Tiny reader for the few flat S3 XML responses we need.
+/// Tiny reader for the few flat S3 and Azure Blob XML responses we need.
 ///
-/// ponytail: regex over known flat tags, not a real XML parser. S3 responses
-/// are machine-made and flat, so this holds. Swap in `package:xml` if a
+/// ponytail: regex over known flat tags, not a real XML parser. The
+/// responses are machine-made and flat, so this holds. A tag may have
+/// attributes (Azure `<Name Encoded="false">`). Swap in `package:xml` if a
 /// response with nested same-name tags is ever needed.
 class S3Xml {
   const S3Xml();
 
   /// Inner text of every `<tag>...</tag>`, in order. Not decoded.
   List<String> all(String xml, String tag) {
-    RegExp pattern = _tags[tag] ??= RegExp('<$tag>(.*?)</$tag>', dotAll: true);
+    RegExp pattern = _tags[tag] ??= RegExp(
+      '<$tag(?:\\s[^>/]*)?>(.*?)</$tag>',
+      dotAll: true,
+    );
     List<String> found = <String>[];
     for (RegExpMatch match in pattern.allMatches(xml)) {
       found.add(match.group(1)!);

@@ -1,4 +1,5 @@
-/// File storage for Dox: local disk, S3 and S3-compatible services.
+/// File storage for Dox: local disk, S3, S3-compatible services and Azure
+/// Blob Storage.
 library;
 
 export 'src/clock.dart';
@@ -16,6 +17,10 @@ export 'src/types.dart';
 export 'src/drivers/s3/s3_driver.dart';
 export 'src/drivers/s3/s3_driver_config.dart';
 export 'src/drivers/s3/s3_client.dart';
+export 'src/drivers/azure/azure_blob_driver.dart';
+export 'src/drivers/azure/azure_blob_driver_config.dart';
+export 'src/drivers/azure/azure_blob_client.dart';
+export 'src/drivers/azure/shared_key_signer.dart';
 
 /// Dox app glue: Storage(), StorageProvider, Storage.route()
 export 'src/dox/storage.dart';

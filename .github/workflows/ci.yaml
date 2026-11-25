@@ -18,6 +18,12 @@ jobs:
           docker run -d --name minio -p 9100:9000 \
             -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
             cgr.dev/chainguard/minio:latest server /tmp/data
+      # The Azure Blob tests use Azurite on port 10000.
+      - name: Start Azurite
+        run: |
+          docker run -d --name azurite -p 10000:10000 \
+            mcr.microsoft.com/azure-storage/azurite:3.38.0 \
+            azurite-blob --blobHost 0.0.0.0 --skipApiVersionCheck --loose
       - uses: actions/checkout@v4
       - uses: dart-lang/setup-dart@v1
         with:
@@ -40,5 +46,10 @@ jobs:
       - run: dart analyze --fatal-infos
       - name: Wait for MinIO
         run: timeout 90 sh -c 'until curl -sf http://localhost:9100/minio/health/live; do sleep 1; done'
+      # Any HTTP answer means Azurite is up.
+      - name: Wait for Azurite
+        run: timeout 90 sh -c 'until curl -s -o /dev/null http://127.0.0.1:10000/; do sleep 1; done'
+      # CI=true makes the MinIO and Azurite tests fail, not skip, when
+      # the service is down.
       - run: dart test
       - run: dart pub publish --dry-run

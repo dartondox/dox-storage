@@ -4,6 +4,8 @@ import 'package:dox_core/dox_core.dart';
 
 import '../drive_manager.dart';
 import '../driver_contract.dart';
+import '../drivers/azure/azure_blob_driver.dart';
+import '../drivers/azure/azure_blob_driver_config.dart';
 import '../drivers/local_driver.dart';
 import '../drivers/memory_driver.dart';
 import '../drivers/s3/s3_driver.dart';
@@ -13,7 +15,7 @@ import '../types.dart';
 /// Storage disks for `Storage()`.
 ///
 /// Each disk is a map of options with a `driver` key, so the config can be
-/// sent to every isolate. Drivers: `local`, `s3` and `memory`.
+/// sent to every isolate. Drivers: `local`, `s3`, `azure` and `memory`.
 /// ```
 /// StorageConfig(
 ///   defaultDisk: 'local',
@@ -21,6 +23,8 @@ import '../types.dart';
 ///     'local': {'driver': 'local', 'root': 'storage', 'url': 'http://localhost:3000/files'},
 ///     's3': {'driver': 's3', 'bucket': 'my-bucket', 'region': 'us-east-1',
 ///            'key': '...', 'secret': '...'},
+///     'azure': {'driver': 'azure', 'account': 'myaccount', 'key': '...',
+///               'container': 'files'},
 ///     'memory': {'driver': 'memory'},
 ///   },
 /// );
@@ -96,6 +100,16 @@ class StorageDiskFactory {
             supportsAcl: options['acl'] as bool? ?? true,
             supportsBatchDelete: options['batch_delete'] as bool? ?? true,
             unsignedPayload: options['unsigned_payload'] == true,
+          ),
+        );
+      case 'azure':
+        return AzureBlobDriver(
+          AzureBlobDriverConfig(
+            accountName: _required(name, options, 'account'),
+            accountKey: _required(name, options, 'key'),
+            container: _required(name, options, 'container'),
+            endpoint: _text(options['endpoint']),
+            urlBase: _text(options['url']),
           ),
         );
       case 'memory':

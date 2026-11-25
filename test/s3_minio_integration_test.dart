@@ -17,7 +17,7 @@ import 'support/disk_contract.dart';
 ///   -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
 ///   cgr.dev/chainguard/minio:latest server /tmp/data --console-address :9001
 ///
-/// Skipped when MinIO is not reachable. Override with MINIO_ENDPOINT,
+/// Skipped when MinIO is not reachable, but fails when CI=true. Override with MINIO_ENDPOINT,
 /// MINIO_ACCESS_KEY and MINIO_SECRET_KEY.
 String endpoint =
     Platform.environment['MINIO_ENDPOINT'] ?? 'http://localhost:9100';
@@ -69,6 +69,12 @@ Future<void> createBucket(S3Driver driver) async {
 
 Future<void> main() async {
   bool up = await minioIsUp();
+  if (!up && Platform.environment['CI'] == 'true') {
+    test('MinIO is reachable in CI', () {
+      fail('MinIO is not reachable at $endpoint');
+    });
+    return;
+  }
   String? skip = up ? null : 'MinIO is not reachable at $endpoint';
 
   group('MinIO', () {

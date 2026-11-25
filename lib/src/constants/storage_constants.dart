@@ -41,6 +41,28 @@ class StorageConstants {
   static const String s3AllUsersGroup =
       'http://acs.amazonaws.com/groups/global/AllUsers';
 
+  /// `x-ms-version` of Azure Blob requests and SAS tokens.
+  static const String azureApiVersion = '2023-11-03';
+
+  /// Block size for Azure `putStream` (Put Block). One block is kept in
+  /// memory at a time.
+  static const int azureDefaultBlockSize = 8 * 1024 * 1024;
+
+  /// Azure allows at most 50,000 committed blocks per blob.
+  static const int azureMaxBlocks = 50000;
+
+  /// Biggest block Azure accepts (4000 MiB).
+  static const int azureMaxBlockSize = 4000 * 1024 * 1024;
+
+  /// How long Azure `copy` waits for a pending Copy Blob by default.
+  static const Duration azureDefaultCopyTimeout = Duration(minutes: 5);
+
+  /// Time between checks of a pending Azure Copy Blob.
+  static const Duration azureCopyPollInterval = Duration(milliseconds: 200);
+
+  /// Blobs deleted at the same time by Azure `deleteAll`.
+  static const int azureDeleteConcurrency = 16;
+
   /// Query parameter names for local signed URLs.
   static const String localExpiresParam = 'expires';
   static const String localSignatureParam = 'signature';
