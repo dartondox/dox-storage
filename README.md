@@ -1,6 +1,6 @@
 # dox_storage
 
-File storage for Dart. One API for local disk, AWS S3 and S3-compatible services.
+File storage for Dart. One API for local disk, AWS S3, S3-compatible services and Azure Blob Storage.
 
 [![pub package](https://img.shields.io/pub/v/dox_storage.svg)](https://pub.dev/packages/dox_storage)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/dartondox/dox-storage/blob/main/LICENSE)
@@ -89,14 +89,88 @@ void main() async {
 
 Without the provider, `Storage()` has one `local` disk in the `storage` folder.
 
+## Azure Blob Storage
+
+`AzureBlobDriver` stores files as block blobs in Azure Blob Storage.
+Use it when your files are in an Azure storage account. The `Disk` API is the same as for S3.
+
+```dart
+DriveManager drive = DriveManager(
+  defaultDisk: 'azure',
+  disks: <String, DriverContract>{
+    'azure': AzureBlobDriver(AzureBlobDriverConfig(
+      accountName: 'myaccount',
+      accountKey: '...', // the base64 key from the Azure portal
+      container: 'files',
+    )),
+  },
+);
+```
+
+The driver does not create the container. Create the container before you use the disk.
+
+`AzureBlobDriverConfig` has three optional settings:
+
+- `endpoint`: the URL of the blob service, without the container. The default is `https://<accountName>.blob.core.windows.net`. For Azurite, use `http://127.0.0.1:10000/devstoreaccount1`.
+- `urlBase`: the base of the URLs that `getUrl` returns, for example a CDN. The default is the container URL.
+- `blockSize`: the size in bytes of one block of `putStream`. The default is 8 MiB. It must be from 1 byte to 4000 MiB, or the driver throws `ArgumentError`.
+
+### Azure disk in a Dox app
+
+In `lib/config/storage.dart`, a disk is a map of options. Set `driver` to `azure`:
+
+```dart
+'azure': <String, dynamic>{
+  'driver': 'azure',
+  'account': 'myaccount',
+  'key': '...',
+  'container': 'files',
+},
+```
+
+`account`, `key` and `container` are necessary. `endpoint` and `url` are optional. `url` is the `urlBase` setting.
+
+### Differences from S3
+
+Azure Blob Storage does not work the same as S3 in all operations. Read this list before you move a disk from S3 to Azure.
+
+- Visibility: Azure sets public access for each container, not for each file. `getVisibility` returns the level of the container. `setVisibility` throws `UnsupportedOperationException`. The driver ignores the `visibility` of `WriteOptions`.
+- Signed upload URL: the client must send the header `x-ms-blob-type: BlockBlob` with the PUT. Azure does not enforce the `contentType` of `SignedUrlOptions`. A successful upload returns status 201.
+- Signed URL expiry: S3 has a limit of 7 days. The Azure driver has no such limit. The expiry must be in the future.
+- `putStream`: a stream smaller than `blockSize` goes up as one Put Blob request. A stream of `blockSize` bytes or more goes up as blocks, then one Put Block List request. Only one block is in memory at a time. If an upload fails, Azure removes the uncommitted blocks after 7 days.
+- `copy`: the copy keeps the content type of the source, unless you set `contentType` in `WriteOptions`.
+- `delete`: the driver also deletes the snapshots of the blob.
+
+### Azure integration tests
+
+The integration tests of the Azure driver use Azurite, the Azure Storage emulator.
+
+1. Start Azurite:
+
+   ```bash
+   docker run -d --rm --name dox-storage-azurite -p 10000:10000 \
+     mcr.microsoft.com/azure-storage/azurite \
+     azurite-blob --blobHost 0.0.0.0 --skipApiVersionCheck --loose
+   ```
+
+2. Run the tests:
+
+   ```bash
+   dart test
+   ```
+
+To use a different Azurite, set `AZURITE_ENDPOINT`, `AZURITE_ACCOUNT` and `AZURITE_KEY`.
+
+On your machine, the tests skip when Azurite does not answer. When `CI=true`, they fail. The MinIO tests of the S3 driver obey the same rule.
+
 ## Features
 
-- Drivers: `LocalDriver`, `S3Driver` (AWS S3, Cloudflare R2, MinIO, DigitalOcean Spaces, GCS with HMAC keys) and `MemoryDriver`.
+- Drivers: `LocalDriver`, `S3Driver` (AWS S3, Cloudflare R2, MinIO, DigitalOcean Spaces, GCS with HMAC keys), `AzureBlobDriver` (Azure Blob Storage, Azurite) and `MemoryDriver`.
 - `put`, `putStream`, `get`, `getStream`, `copy`, `move`, `delete`, `listAll`.
 - `files`, `allFiles`, `directories`, `deleteDirectory` and `missing`. `deleteDirectory` refuses the root (`''` or `/`), so a bad path can not empty a disk.
 - `Storage().put(folder, bytes)` and `putFile(folder, file)` store with a new uuid file name. `Storage().put(path, contents, exact: true)` writes to that exact path. `putFileAs(folder, file, name)` stores with your name.
 - `append`, `prepend`, `size`, `lastModified`, `makeDirectory` and `directoryExists`. `makeDirectory` does nothing on any disk that is not local (S3, memory, custom drivers), because they have no real folders. `directoryExists('')` (the root) is always true.
-- Signed download URLs, and signed upload URLs on S3. A local signed URL only works on the route of its own disk.
+- Signed download URLs, and signed upload URLs on S3 and Azure Blob Storage. A local signed URL only works on the route of its own disk.
 - Opt-in atomic local writes (`atomicWrites: true`). A failed upload never leaves a partial file.
 - Opt-in local file modes (`permissions: true`). Then visibility is the file mode: public file 0644, private file 0600, public folder 0755, private folder 0700. The mode is set before the content is written. An overwrite, `append` and `prepend` keep the mode of the file, unless the write gives a visibility. A copy gets the write visibility, or the mode of the source, and goes through a temp file, so it never empties its own source. Each mode must be an int from 0 to 0o777, or `ArgumentError` is thrown. New folders get the folder mode. Visibility does not follow symlinks. It does nothing on Windows.
 - Big streams go up as a multipart upload. Only one part is in memory at a time. `multipartPartSize` should be from 5 MiB to 5 GiB. Outside that range `S3Driver` prints a warning to stderr, and S3 refuses a multipart upload with parts under 5 MiB.
@@ -106,6 +180,7 @@ Without the provider, `Storage()` has one `local` disk in the `storage` folder.
 - `file.storeAs(folder, name)` uses your name. Do not pass the raw client file name to `storeAs`. Make your own name, like `user-1.png`.
 - `drive.fake('s3')` swaps a disk for memory in tests. Check it with `assertExists` and `assertMissing`.
 - AWS Signature V4 is written in this package. There is no AWS SDK dependency.
+- Azure Shared Key and SAS signatures are written in this package. There is no Azure SDK dependency.
 
 ## Documentation
 
