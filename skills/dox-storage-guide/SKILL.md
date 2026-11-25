@@ -78,12 +78,12 @@ Read secrets from the app `env` class in `lib/config/env.dart`, never hard-code 
 | --- | --- |
 | `local` | `root` (default `storage`), `url`, `visibility` (default public), `atomic_writes`, `permissions`, `app_key` |
 | `s3` | `bucket`, `key`, `secret` (these three are required), `region` (default `us-east-1`), `token`, `endpoint`, `path_style`, `url`, `visibility` (default private), `acl`, `batch_delete`, `unsigned_payload` (default false; skips the body hash, only safe over HTTPS) |
-| `azure` | `account`, `key`, `container` (these three are required), `endpoint` (Azurite or a custom domain), `url`, `copyTimeout` (default 5 minutes) |
+| `azure` | `account`, `key`, `container` (these three are required), `endpoint` (Azurite or a custom domain), `url` |
 | `memory` | none |
 
 A missing required S3 or Azure setting, or an unknown `driver`, throws `ArgumentError` at start.
 For R2, MinIO and Spaces set `endpoint`. For MinIO set `'path_style': true`. For R2 set `'acl': false`.
-For Azurite set `endpoint` to `http://127.0.0.1:10000/devstoreaccount1`. The driver does not make the container, so make it before you use the disk.
+For Azurite set `endpoint` to `http://127.0.0.1:10000/devstoreaccount1`, `account` to `devstoreaccount1` and `key` to the Azurite development key. The driver does not make the container, so make it before you use the disk.
 
 ## Recipes
 
@@ -206,7 +206,7 @@ All errors extend `StorageException` (it has `key`, `message`, `cause`):
 - Everything is async. Always `await`.
 - Never pass the raw client file name to `storeAs`. Make your own name, like `user-1.png`.
 - `deleteDirectory` refuses the root and throws `InvalidKeyException`. To empty a disk on purpose use `Storage().use().deleteAll()`.
-- `makeDirectory` only works on the local disk. On S3 and memory it does nothing. A folder exists there when a file is under it.
+- `makeDirectory` only works on the local disk. On S3, Azure and memory it does nothing. A folder exists there when a file is under it.
 - `Storage().get` returns `Uint8List?`. `Disk.get` throws when the file is missing.
 - `prepend` reads the file and writes it back. `append` does the same, except on a local disk with `atomic_writes` and `permissions` off: there it adds to the end of the file in place. Neither is safe for two writers at the same time.
 - Local `setVisibility` needs the `permissions` option. With `'acl': false` on S3 it does nothing. On Azure, `setVisibility` throws `UnsupportedOperationException`, because visibility is set for each container.
@@ -215,4 +215,4 @@ All errors extend `StorageException` (it has `key`, `message`, `cause`):
 - S3 `putStream` hashes each part in pure Dart (about 6.5 ms per MiB), so a very large upload uses CPU of the request isolate, in small steps. Over HTTPS, `unsignedPayload: true` removes the cost.
 - S3 signing is built in. Do not add the AWS SDK.
 - Azure signing is built in. Do not add an Azure SDK.
-- Azure `copy` and `move` wait for a pending copy. After `copyTimeout` (5 minutes by default) the driver stops the copy and throws `DriverException`.
+- Azure `copy` and `move` wait for a pending copy. After 5 minutes the driver stops the copy and throws `DriverException`. Only `AzureBlobDriverConfig.copyTimeout` changes this time. The Dox disk config has no key for it.
