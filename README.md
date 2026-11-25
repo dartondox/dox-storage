@@ -109,7 +109,7 @@ DriveManager drive = DriveManager(
 
 The driver does not create the container. Create the container before you use the disk.
 
-`AzureBlobDriverConfig` has three optional settings:
+`AzureBlobDriverConfig` has these optional settings:
 
 - `endpoint`: the URL of the blob service, without the container. The default is `https://<accountName>.blob.core.windows.net`. For Azurite, use `http://127.0.0.1:10000/devstoreaccount1`.
 - `urlBase`: the base of the URLs that `getUrl` returns, for example a CDN. The default is the container URL.

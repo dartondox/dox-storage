@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'driver_contract.dart';
+import 'drivers/azure/azure_blob_driver.dart';
 import 'drivers/local_driver.dart';
 import 'drivers/s3/s3_driver.dart';
 import 'exceptions.dart';
@@ -275,8 +276,11 @@ class Disk {
       if (target is LocalDriver) {
         return await Directory(target.pathFor(p)).exists();
       }
+      // Their listings hide folder markers, so they have their own check.
       if (target is S3Driver) {
-        // Its listing hides folder markers, so it has its own check.
+        return await target.directoryExists(p);
+      }
+      if (target is AzureBlobDriver) {
         return await target.directoryExists(p);
       }
       ListResult result = await target.listAll(p, const ListOptions(limit: 1));

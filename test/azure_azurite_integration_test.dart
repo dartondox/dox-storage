@@ -237,6 +237,17 @@ Future<void> main() async {
         expect(result.objects.single.key, 'extras/marked/a.txt');
       });
 
+      test('a folder with only a marker blob exists', () async {
+        await driver.put(
+          'extras/only-marker/',
+          Uint8List(0),
+          const WriteOptions(),
+        );
+        expect(await disk.directoryExists('extras/only-marker'), isTrue);
+        expect(await disk.directoryExists('extras/no-such-dir'), isFalse);
+        expect((await disk.listAll('extras/only-marker')).objects, isEmpty);
+      });
+
       test('copy keeps or changes the content type', () async {
         await disk.put('extras/copy-src.json', '{}');
         await disk.copy('extras/copy-src.json', 'extras/copy-a.json');

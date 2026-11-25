@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -16,17 +17,35 @@ class AzureBlockUpload {
   final String key;
   final List<String> _ids = <String>[];
 
+  /// Random per upload, so two uploads to the same key at the same time
+  /// do not overwrite each other's uncommitted blocks.
+  final String _uploadId = _randomHex(8);
+
   AzureBlockUpload(this.client, this.key);
+
+  /// Block id number [index] of this upload. Every id of a blob must have
+  /// the same length.
+  String blockId(int index) {
+    return base64.encode(
+      utf8.encode('$_uploadId-${index.toString().padLeft(6, '0')}'),
+    );
+  }
+
+  static String _randomHex(int bytes) {
+    Random random = Random.secure();
+    StringBuffer out = StringBuffer();
+    for (int i = 0; i < bytes; i++) {
+      out.write(random.nextInt(256).toRadixString(16).padLeft(2, '0'));
+    }
+    return out.toString();
+  }
 
   /// Upload the next block. [chunks] are sent as they are, with no copy.
   Future<void> putBlock(List<Uint8List> chunks) async {
     if (_ids.length >= StorageConstants.azureMaxBlocks) {
       throw DriverException(key, 'File is larger than 50,000 blocks');
     }
-    // Every block id of a blob must have the same length.
-    String id = base64.encode(
-      utf8.encode('block-${_ids.length.toString().padLeft(6, '0')}'),
-    );
+    String id = blockId(_ids.length);
     http.Response response = await client.sendChunks(
       'PUT',
       client.blobUri(key, <String, String>{'comp': 'block', 'blockid': id}),

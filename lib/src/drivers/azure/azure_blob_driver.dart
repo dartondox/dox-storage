@@ -31,10 +31,14 @@ class AzureBlobDriver implements DriverContract {
     http.Client? httpClient,
     Clock clock = const Clock(),
   }) : client = AzureBlobClient(
-         config,
+         // Checked before the native client is made, so a bad config
+         // does not leak one.
+         _checked(config),
          httpClient: httpClient ?? DoxHttpPackageClient(),
          clock: clock,
-       ) {
+       );
+
+  static AzureBlobDriverConfig _checked(AzureBlobDriverConfig config) {
     if (config.blockSize <= 0 ||
         config.blockSize > StorageConstants.azureMaxBlockSize) {
       throw ArgumentError.value(
@@ -43,6 +47,7 @@ class AzureBlobDriver implements DriverContract {
         'must be from 1 byte to 4000 MiB',
       );
     }
+    return config;
   }
 
   /// Close the HTTP client.
@@ -383,6 +388,10 @@ class AzureBlobDriver implements DriverContract {
     List<DriveEntry> entries = <DriveEntry>[];
     String? marker = options.paginationToken;
     int? limit = options.limit;
+    // Azure refuses maxresults below 1.
+    if (limit != null && limit <= 0) {
+      return const ListResult(<DriveEntry>[]);
+    }
     while (true) {
       _Page page = await _listPage(
         prefix,
@@ -401,6 +410,20 @@ class AzureBlobDriver implements DriverContract {
     }
     entries.sort(_compareKeys);
     return ListResult(entries, paginationToken: marker);
+  }
+
+  /// True when any name starts with `prefix/`. A folder marker blob like
+  /// `photos/` counts. [listAll] hides markers, so it can not tell a
+  /// folder with only a marker from a missing one.
+  Future<bool> directoryExists(String prefix) async {
+    _Page page = await _listPage(
+      prefix,
+      recursive: true,
+      markers: true,
+      marker: null,
+      maxResults: 1,
+    );
+    return page.entries.isNotEmpty;
   }
 
   /// One List Blobs request. With [markers] true, names that end with

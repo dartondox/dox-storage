@@ -1,4 +1,5 @@
 import 'package:dox_storage/dox_storage.dart';
+import 'package:dox_storage/src/drivers/azure/azure_block_upload.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:test/test.dart';
@@ -193,7 +194,45 @@ void main() {
     });
   });
 
+  group('AzureBlockUpload |', () {
+    test('block ids differ per upload and have one length', () {
+      AzureBlobClient client = FakeAzure(<http.Response>[]).driver().client;
+      AzureBlockUpload a = AzureBlockUpload(client, 'k');
+      AzureBlockUpload b = AzureBlockUpload(client, 'k');
+      expect(a.blockId(0), isNot(b.blockId(0)));
+      expect(a.blockId(0), isNot(a.blockId(1)));
+      expect(a.blockId(49999).length, a.blockId(0).length);
+    });
+  });
+
+  test('a bad blockSize throws', () {
+    expect(
+      () => AzureBlobDriver(
+        const AzureBlobDriverConfig(
+          accountName: 'acc',
+          accountKey: 'a2V5',
+          container: 'c',
+          blockSize: 0,
+        ),
+      ),
+      throwsArgumentError,
+    );
+  });
+
   group('AzureBlobDriver listing |', () {
+    test('a limit below 1 lists nothing and sends no request', () async {
+      FakeAzure azure = FakeAzure(<http.Response>[]);
+      for (int limit in <int>[0, -1]) {
+        ListResult result = await azure.driver().listAll(
+          '',
+          ListOptions(limit: limit),
+        );
+        expect(result.objects, isEmpty);
+        expect(result.paginationToken, isNull);
+      }
+      expect(azure.requests, isEmpty);
+    });
+
     test('an Encoded="true" name is decoded', () async {
       FakeAzure azure = FakeAzure(<http.Response>[
         listPage(
